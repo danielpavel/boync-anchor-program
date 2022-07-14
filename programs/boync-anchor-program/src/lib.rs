@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("EkvnvRY2prU1sJpVLHBk5qsNMXBryaZeMVacRSE1pcZM");
+declare_id!("hqgrvUepLLhFbXCb8woduWM62ps5rqap3TmPHbpuK11");
 
 pub const BOYNC_USER_PDA_SEED: &[u8] = b"user";
 
