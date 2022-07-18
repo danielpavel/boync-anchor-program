@@ -30,7 +30,13 @@ let connection: Connection;
 /**
  * BoyncUser Bob's PDA
  */
-let bobUserPDA: PublicKey;
+// let bobUserPDA: PublicKey;
+
+/**
+ * BoyncAuction Bob's PDA
+ */
+let bobAuctionPDA: PublicKey;
+
 
 /**
  * Main BoyncAuction program id
@@ -63,6 +69,8 @@ export async function establishConnection(): Promise<void> {
 
   connection = anchorProvider.connection;
 
+  // console.log('[Connection]:', connection);
+  // console.log('[AnchorProvider]:', anchor.getProvider());
   console.log('[Anchor] Provider set. Connection details:', 
     anchorProvider.connection.rpcEndpoint, 
     anchorProvider.connection.getVersion()
@@ -110,43 +118,92 @@ export async function checkBoyncProgram(): Promise<void> {
   // );
 }
 
-export async function initBoyncUser(): Promise<void> {
-  const [_bobUserPDA, _] = await PublicKey
+// export async function initBoyncUser(): Promise<void> {
+//   const [_bobUserPDA, _] = await PublicKey
+//   .findProgramAddress(
+//     [
+//       anchor.utils.bytes.utf8.encode('user'),
+//       anchorProvider.wallet.publicKey.toBuffer(),
+//     ],
+//     program.programId
+//   );
+
+//   bobUserPDA = _bobUserPDA;
+
+//   console.log('[Anchor] Initialize Boync User with Bob User PDA:', bobUserPDA.toBase58());
+//   console.log('[Anchor] Payer:', anchorProvider.wallet.publicKey.toBase58());
+
+//   const bobData = await program.account.boyncUserData.fetch(bobUserPDA);
+//   if (bobData != null || typeof bobData != 'undefined') {
+//     console.log(`[Anchor] Boync User with Bob User PDA ${bobUserPDA.toBase58()} already defined:`);
+//     console.log(bobData);
+//     return;
+//   }
+
+//   const tx = await program.methods
+//   .initialize('Bob')
+//   .accounts({
+//     user: anchorProvider.wallet.publicKey,
+//     userData: bobUserPDA,
+//   })
+//   .rpc();
+
+//   console.log('[Anchor] Done, tx:', tx);
+// }
+
+export async function initBoyncAuction(): Promise<void> {
+  const token: PublicKey = new PublicKey("ARbt5mrsfmi32fJ5Uk1Mbo26e5u77CwjJ4Cf9HWXUQe9");
+  const [_bobAuctionPDA, _] = await PublicKey
   .findProgramAddress(
     [
-      anchor.utils.bytes.utf8.encode('user'),
+      anchor.utils.bytes.utf8.encode('auction'),
       anchorProvider.wallet.publicKey.toBuffer(),
     ],
     program.programId
   );
 
-  bobUserPDA = _bobUserPDA;
+  bobAuctionPDA = _bobAuctionPDA;
 
-  console.log('[Anchor] Initialize Boync User with Bob User PDA:', bobUserPDA.toBase58());
+  console.log('[Anchor] Initialize Boync Auction with Bob User PDA:', bobAuctionPDA.toBase58());
   console.log('[Anchor] Payer:', anchorProvider.wallet.publicKey.toBase58());
+  console.log('[Anchor] Token Id:', token.toBase58());
 
-  const bobData = await program.account.boyncUserData.fetch(bobUserPDA);
-  if (bobData != null || typeof bobData != 'undefined') {
-    console.log(`[Anchor] Boync User with Bob User PDA ${bobUserPDA.toBase58()} already defined:`);
-    console.log(bobData);
-    return;
+  try {
+    const _bobAuctionData = await program.account.boyncAuctionData.fetch(bobAuctionPDA);
+    if (_bobAuctionData != null || typeof _bobAuctionData != "undefined") {
+      console.log(
+        `[Anchor] Boync Auction with Bob User PDA ${bobAuctionPDA.toBase58()} already defined:`
+      );
+      return;
+    }
+  } catch (error) {
+    console.log(`[Anchor] Account ${bobAuctionPDA.toBase58()}, does not exist ... move on to creating it!`);
   }
-
+  
   const tx = await program.methods
-  .initialize('Bob')
+  .initialize('Bob', token)
   .accounts({
-    user: anchorProvider.wallet.publicKey,
-    userData: bobUserPDA,
+    authority: anchorProvider.wallet.publicKey,
+    userData: _bobAuctionPDA,
   })
   .rpc();
 
   console.log('[Anchor] Done, tx:', tx);
 }
 
-export async function checkBoyncUser(): Promise<void> {
-  console.log('[Anchor] Fetching Boync User with PDA:', bobUserPDA.toBase58());
+// export async function checkBoyncUser(): Promise<void> {
+//   console.log('[Anchor] Fetching Boync User with PDA:', bobUserPDA.toBase58());
 
-  const bobData = await program.account.boyncUserData.fetch(bobUserPDA);
+//   const bobData = await program.account.boyncUserData.fetch(bobUserPDA);
 
-  console.log(`[Anchor] Done. Boync User Data: { name: ${bobData.name}, user: ${bobData.user.toBase58()} }`);
+//   console.log(`[Anchor] Done. Boync User Data: { name: ${bobData.name}, user: ${bobData.user.toBase58()} }`);
+// }
+
+export async function checkBoyncAuction(): Promise<void> {
+  console.log('[Anchor] Fetching Boync User with PDA:', bobAuctionPDA.toBase58());
+
+  const bobAuctionData = await program.account.boyncAuctionData.fetch(bobAuctionPDA);
+
+  console.log('[Anchor] Done.');
+  console.log(`Boync Auction Data: { name: ${bobAuctionData.name}, authority: ${bobAuctionData.authority.toBase58()}, token: ${bobAuctionData.token.toBase58()}`);
 }

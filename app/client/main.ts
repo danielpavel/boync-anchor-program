@@ -5,8 +5,10 @@
 import {
   establishConnection,
   checkBoyncProgram,
-  initBoyncUser,
-  checkBoyncUser
+  initBoyncAuction,
+  checkBoyncAuction,
+  // initBoyncUser,
+  // checkBoyncUser
 } from './hello_world';
 
 async function boync_auction_init() {
@@ -19,10 +21,12 @@ async function boync_auction_init() {
   await checkBoyncProgram();
 
   // Initialize a Boync User
-  await initBoyncUser();
+  // await initBoyncUser();
+  await initBoyncAuction();
 
   // Check boync user
-  await checkBoyncUser();
+  // await checkBoyncUser();
+  await checkBoyncAuction();
 
   console.log('Success');
 }
