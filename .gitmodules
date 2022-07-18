@@ -1,0 +1,3 @@
+[submodule "app/boync-app-2"]
+	path = app/boync-app-2
+	url = git@github.com:danielpavel/boync-app-2.git
