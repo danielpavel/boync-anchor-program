@@ -2,14 +2,12 @@
 seeds = false
 [programs.localnet]
 boync_anchor_program = "hqgrvUepLLhFbXCb8woduWM62ps5rqap3TmPHbpuK11"
-[programs.devnet]
-boync_anchor_program = "hqgrvUepLLhFbXCb8woduWM62ps5rqap3TmPHbpuK11"
 
 [registry]
 url = "https://anchor.projectserum.com"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "/Users/danielpavel/.config/solana/id.json"
 
 [scripts]

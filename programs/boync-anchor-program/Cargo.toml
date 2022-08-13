@@ -1,5 +1,5 @@
 [package]
-name = "boync-anchor-program"
+name = "boync_anchor_program"
 version = "0.1.0"
 description = "Created with Anchor"
 edition = "2021"
@@ -19,4 +19,6 @@ default = []
 overflow-checks = true
 
 [dependencies]
-anchor-lang = "0.24.2"
+anchor-lang = "0.25.0"
+anchor-spl = "0.25.0"
+spl-associated-token-account = "1.0.5"
