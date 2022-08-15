@@ -16,7 +16,7 @@ pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const WALLET_SEED: &[u8] = b"wallet";
 pub const AUCTION_SEED: &[u8] = b"auction";
 
-declare_id!("hqgrvUepLLhFbXCb8woduWM62ps5rqap3TmPHbpuK11");
+declare_id!("75umXMeZ2xX72AGGM4PgHBSi7UVawU1sQnRakHr64p6g");
 
 #[program]
 pub mod boync_anchor_program {

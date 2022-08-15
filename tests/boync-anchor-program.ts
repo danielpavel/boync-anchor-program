@@ -1,7 +1,7 @@
 import * as anchor from "@project-serum/anchor";
 import { Program } from "@project-serum/anchor";
 // import { Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { BoyncAnchorProgram } from "../target/types/auction";
+import { BoyncAnchorProgram } from "../target/types/boync_anchor_program";
 import * as spl from '@solana/spl-token';
 import { assert, expect } from 'chai';
 

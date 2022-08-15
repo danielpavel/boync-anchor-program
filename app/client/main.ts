@@ -7,8 +7,7 @@ import {
   checkBoyncProgram,
   initBoyncAuction,
   checkBoyncAuction,
-  // initBoyncUser,
-  // checkBoyncUser
+  preInitBoyncAuction,
 } from './hello_world';
 
 async function boync_auction_init() {
@@ -20,13 +19,9 @@ async function boync_auction_init() {
   // Check if the program has been deployed
   await checkBoyncProgram();
 
-  // Initialize a Boync User
-  // await initBoyncUser();
-  await initBoyncAuction();
+  await preInitBoyncAuction();
 
-  // Check boync user
-  // await checkBoyncUser();
-  await checkBoyncAuction();
+  await initBoyncAuction();
 
   console.log('Success');
 }
