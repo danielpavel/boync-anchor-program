@@ -36,6 +36,8 @@ interface PDAParams {
   auctionStateKey:    anchor.web3.PublicKey,
 }
 
+console.log('[new program keypair]:', new anchor.web3.Keypair().publicKey.toBase58())
+
 describe("Boync Auction Tests", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env());
@@ -173,7 +175,7 @@ describe("Boync Auction Tests", () => {
   ): Promise<PDAParams> => {
     const nowInSec = Math.floor(Date.now() / 1000);
     let uid = new anchor.BN(parseInt((nowInSec + HALF_HOUR).toString()));
-    const uidBuffer = uid.toBuffer("le", 8);
+    // const uidBuffer = uid.toBuffer("le", 8);
 
     let [auctionStatePubKey, auctionStateBump] =
       await anchor.web3.PublicKey.findProgramAddress(
@@ -182,7 +184,7 @@ describe("Boync Auction Tests", () => {
           AUCTION_SEED,
           auctionCreator.toBuffer(),
           treasuryMint.toBuffer(),
-          uidBuffer,
+          // uidBuffer,
         ],
         program.programId
       );
@@ -194,7 +196,7 @@ describe("Boync Auction Tests", () => {
           TREASURY_SEED,
           auctionCreator.toBuffer(),
           treasuryMint.toBuffer(),
-          uidBuffer,
+          // uidBuffer,
         ],
         program.programId
       );
@@ -206,7 +208,7 @@ describe("Boync Auction Tests", () => {
           CHEST_WALLET_SEED,
           auctionCreator.toBuffer(),
           chestMint.toBuffer(),
-          uidBuffer,
+          // uidBuffer,
         ],
         program.programId
       );

@@ -16,7 +16,7 @@ pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const WALLET_SEED: &[u8] = b"wallet";
 pub const AUCTION_SEED: &[u8] = b"auction";
 
-declare_id!("75umXMeZ2xX72AGGM4PgHBSi7UVawU1sQnRakHr64p6g");
+declare_id!("AJ5sBhfKogTUBJZ6cKMncZ433Pqxn1Xo9ZrDXKNioWQ1");
 
 #[program]
 pub mod boync_anchor_program {
@@ -44,12 +44,12 @@ pub mod boync_anchor_program {
         // let _bump = *ctx.bumps.get("auction").unwrap();
         let _bump = state_bump;
         let mint_of_token_being_sent_pk = ctx.accounts.treasury_mint.key().clone();
-        let app_idx_bytes = app_idx.to_le_bytes();
+        // let app_idx_bytes = app_idx.to_le_bytes();
         let seeds = &[
             AUCTION_SEED,
             ctx.accounts.signer.key.as_ref(),
             mint_of_token_being_sent_pk.as_ref(),
-            app_idx_bytes.as_ref(),
+            // app_idx_bytes.as_ref(),
             &[_bump]
         ];
         let signer_seeds = &[&seeds[..]];
@@ -95,12 +95,14 @@ pub mod boync_anchor_program {
 
     pub fn end(ctx: Context<UpdateAuctionState>) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
+        let clock = Clock::get()?;
 
         // Can't end an Auction that is already ended.
         require!(auction.state == AuctionState::Started,
             AuctionError::InvalidState);
 
         auction.state = auction.state.end()?;
+        auction.end_auction_at = clock.unix_timestamp;
 
         Ok(())
     }
@@ -118,26 +120,20 @@ pub mod boync_anchor_program {
         require!(auction_state.state == AuctionState::Started,
             AuctionError::InvalidState);
 
-        msg!("[BoyncDebug] Here 1");
-
-
-
         // Just transfer SPL Token to bidders_chest
         // let _bump = *ctx.bumps.get("auction").unwrap();
         let _bump = auction_bump;
         let _auction_auth = auction_state.authority.clone();
         let mint_of_token_being_sent_pk = auction_state.treasury_mint.key().clone();
-        let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
+        // let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
         let seeds = &[
             AUCTION_SEED,
             _auction_auth.as_ref(),
             mint_of_token_being_sent_pk.as_ref(),
-            app_idx_bytes.as_ref(),
+            // app_idx_bytes.as_ref(),
             &_bump.to_le_bytes() 
         ];
         let signer_seeds = &[&seeds[..]];
-
-        msg!("[BoyncDebug] Here 2");
 
         // Token program instruction to send SPL token.
         let transfer_instruction = Transfer {
@@ -146,52 +142,48 @@ pub mod boync_anchor_program {
             authority: ctx.accounts.bidder.to_account_info(),
         };
 
-        msg!("[BoyncDebug] Here 3");
-
         let cpi_ctx = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
             transfer_instruction,
             signer_seeds
         );
 
-        msg!("[BoyncDebug] Here 4");
-
         anchor_spl::token::transfer(cpi_ctx, amount)?;
 
-        msg!("[BoyncDebug] Here 5");
-
         auction_state.last_bidder = ctx.accounts.bidder.key.clone();
+        auction_state.end_auction_at += 60;
 
         Ok(())
     }
 
-    pub fn claim(ctx: Context<ClaimRewards>) -> Result<()> {
+    pub fn claim(ctx: Context<ClaimRewards>, auction_bump: u8) -> Result<()> {
         let auction_state = &mut ctx.accounts.state;
         let clock = Clock::get()?;
 
         // Can't withdraw on an Auction that is ongoing.
-        require!(!auction_state.ended(clock.unix_timestamp)?,
+        require!(auction_state.ended(clock.unix_timestamp)?,
             AuctionError::AuctionOngoing);
 
         // Can't claim an Auction that is not in ended state.
-        require!(auction_state.state != AuctionState::Ended,
+        require!(auction_state.state == AuctionState::Ended,
             AuctionError::InvalidState);
 
         // Only Winner can claim rewards.
         // FIX: *MAYBE REDUNDAND because of 
         // #[account(constraint=state.last_bidder == winner.key())
-        require!(auction_state.last_bidder.key() != ctx.accounts.winner.key(),
+        require!(auction_state.last_bidder.key() == ctx.accounts.winner.key(),
             AuctionError::YouAreNotTheWinner);
 
-        let _bump = *ctx.bumps.get("auction").unwrap();
+        // let _bump = *ctx.bumps.get("auction").unwrap();
+        let _bump = auction_bump;
         let mint_of_token_being_sent_pk = ctx.accounts.treasury_mint.key().clone();
         let _auction_auth = auction_state.authority.clone();
-        let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
+        // let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
         let seeds = &[
             AUCTION_SEED,
             _auction_auth.as_ref(),
             mint_of_token_being_sent_pk.as_ref(),
-            app_idx_bytes.as_ref(),
+            // app_idx_bytes.as_ref(),
             &[_bump]
         ];
         let signer_seeds = &[&seeds[..]];
@@ -214,6 +206,7 @@ pub mod boync_anchor_program {
         // Use the `reload()` function on an account to reload it's state. Since we performed the
         // transfer, we are expecting the `amount` field to have changed.
         // TODO: *PROPERLY CLOSE TREASURY ACCOUNT*
+        auction_state.tokens_amount = 0;
 
         Ok(())
     }
@@ -227,7 +220,8 @@ pub struct InitializeAuction<'info> {
         init,
         payer = signer,
         space = 8 + BoyncAuction::AUCTION_SIZE,
-        seeds =  [AUCTION_SEED, signer.key().as_ref(), treasury_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
+        seeds =  [AUCTION_SEED, signer.key().as_ref(), treasury_mint.key().as_ref()],
+        // seeds =  [AUCTION_SEED, signer.key().as_ref(), treasury_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
         bump
     )]
     pub state: Box<Account<'info, BoyncAuction>>,
@@ -235,7 +229,8 @@ pub struct InitializeAuction<'info> {
     #[account(
         init,
         payer = signer,
-        seeds = [TREASURY_SEED, signer.key().as_ref(), treasury_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
+        // seeds = [TREASURY_SEED, signer.key().as_ref(), treasury_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
+        seeds = [TREASURY_SEED, signer.key().as_ref(), treasury_mint.key().as_ref()],
         bump,
         token::mint=treasury_mint,
         token::authority=state
@@ -246,7 +241,8 @@ pub struct InitializeAuction<'info> {
     #[account(
         init,
         payer = signer,
-        seeds = [WALLET_SEED, signer.key().as_ref(), collector_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
+        seeds = [WALLET_SEED, signer.key().as_ref(), collector_mint.key().as_ref()],
+        // seeds = [WALLET_SEED, signer.key().as_ref(), collector_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
         bump,
         token::mint=collector_mint,
         token::authority=state
@@ -288,14 +284,16 @@ pub struct UpdateAuctionState<'info> {
 pub struct UpdateAuction<'info> {
     #[account(
         mut,
-        seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
+        // seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
+        seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref()],
         bump
     )]
     pub state: Account<'info, BoyncAuction>,
 
     #[account(
         mut,
-        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
+        // seeds = [WALLET_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
+        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref()],
         bump
     )]
     /// Account which holds tokens bidded by biders
@@ -424,7 +422,7 @@ pub enum AuctionError {
     InvalidState,
     #[msg("Auction expired.")]
     AuctionExpired,
-    #[msg("Auction ongoing.")]
+    #[msg("Auction ongoing")]
     AuctionOngoing,
     #[msg("You Are not the winner")]
     YouAreNotTheWinner,

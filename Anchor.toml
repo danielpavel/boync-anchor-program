@@ -1,7 +1,7 @@
 [features]
 seeds = false
 [programs.localnet]
-boync_anchor_program = "75umXMeZ2xX72AGGM4PgHBSi7UVawU1sQnRakHr64p6g"
+boync_anchor_program = "AJ5sBhfKogTUBJZ6cKMncZ433Pqxn1Xo9ZrDXKNioWQ1"
 
 [registry]
 url = "https://anchor.projectserum.com"
