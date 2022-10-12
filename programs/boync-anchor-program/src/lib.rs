@@ -16,7 +16,7 @@ pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const WALLET_SEED: &[u8] = b"wallet";
 pub const AUCTION_SEED: &[u8] = b"auction";
 
-declare_id!("AJ5sBhfKogTUBJZ6cKMncZ433Pqxn1Xo9ZrDXKNioWQ1");
+declare_id!("CTNouVLjqMCabPFdDDoinhfuFLRH5hY5PxoQHsBf6drF");
 
 #[program]
 pub mod boync_anchor_program {
@@ -44,12 +44,12 @@ pub mod boync_anchor_program {
         // let _bump = *ctx.bumps.get("auction").unwrap();
         let _bump = state_bump;
         let mint_of_token_being_sent_pk = ctx.accounts.treasury_mint.key().clone();
-        // let app_idx_bytes = app_idx.to_le_bytes();
+        let app_idx_bytes = app_idx.to_le_bytes();
         let seeds = &[
             AUCTION_SEED,
             ctx.accounts.signer.key.as_ref(),
             mint_of_token_being_sent_pk.as_ref(),
-            // app_idx_bytes.as_ref(),
+            app_idx_bytes.as_ref(),
             &[_bump]
         ];
         let signer_seeds = &[&seeds[..]];
@@ -125,13 +125,13 @@ pub mod boync_anchor_program {
         let _bump = auction_bump;
         let _auction_auth = auction_state.authority.clone();
         let mint_of_token_being_sent_pk = auction_state.treasury_mint.key().clone();
-        // let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
+        let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
         let seeds = &[
             AUCTION_SEED,
             _auction_auth.as_ref(),
             mint_of_token_being_sent_pk.as_ref(),
-            // app_idx_bytes.as_ref(),
-            &_bump.to_le_bytes() 
+            app_idx_bytes.as_ref(),
+            &[_bump]
         ];
         let signer_seeds = &[&seeds[..]];
 
@@ -178,12 +178,12 @@ pub mod boync_anchor_program {
         let _bump = auction_bump;
         let mint_of_token_being_sent_pk = ctx.accounts.treasury_mint.key().clone();
         let _auction_auth = auction_state.authority.clone();
-        // let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
+        let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
         let seeds = &[
             AUCTION_SEED,
             _auction_auth.as_ref(),
             mint_of_token_being_sent_pk.as_ref(),
-            // app_idx_bytes.as_ref(),
+            app_idx_bytes.as_ref(),
             &[_bump]
         ];
         let signer_seeds = &[&seeds[..]];
@@ -220,8 +220,7 @@ pub struct InitializeAuction<'info> {
         init,
         payer = signer,
         space = 8 + BoyncAuction::AUCTION_SIZE,
-        seeds =  [AUCTION_SEED, signer.key().as_ref(), treasury_mint.key().as_ref()],
-        // seeds =  [AUCTION_SEED, signer.key().as_ref(), treasury_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
+        seeds =  [AUCTION_SEED, signer.key().as_ref(), treasury_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
         bump
     )]
     pub state: Box<Account<'info, BoyncAuction>>,
@@ -229,8 +228,7 @@ pub struct InitializeAuction<'info> {
     #[account(
         init,
         payer = signer,
-        // seeds = [TREASURY_SEED, signer.key().as_ref(), treasury_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
-        seeds = [TREASURY_SEED, signer.key().as_ref(), treasury_mint.key().as_ref()],
+        seeds = [TREASURY_SEED, signer.key().as_ref(), treasury_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
         bump,
         token::mint=treasury_mint,
         token::authority=state
@@ -241,8 +239,7 @@ pub struct InitializeAuction<'info> {
     #[account(
         init,
         payer = signer,
-        seeds = [WALLET_SEED, signer.key().as_ref(), collector_mint.key().as_ref()],
-        // seeds = [WALLET_SEED, signer.key().as_ref(), collector_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
+        seeds = [WALLET_SEED, signer.key().as_ref(), collector_mint.key().as_ref(), app_idx.to_le_bytes().as_ref()],
         bump,
         token::mint=collector_mint,
         token::authority=state
@@ -284,16 +281,14 @@ pub struct UpdateAuctionState<'info> {
 pub struct UpdateAuction<'info> {
     #[account(
         mut,
-        // seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
-        seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref()],
+        seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
         bump
     )]
     pub state: Account<'info, BoyncAuction>,
 
     #[account(
         mut,
-        // seeds = [WALLET_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
-        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref()],
+        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
         bump
     )]
     /// Account which holds tokens bidded by biders
