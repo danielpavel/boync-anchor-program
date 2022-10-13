@@ -25,6 +25,7 @@ pub mod boync_anchor_program {
     pub fn initialize(ctx: Context<InitializeAuction>, app_idx: i64, amount: u64, state_bump: u8) -> Result<()> {
         msg!("[BoyncProgram] Initializing new Boync Auction State");
 
+        let clock = Clock::get()?;
         let auction_state = &mut ctx.accounts.state;
 
         auction_state.end_auction_at = app_idx; // App index is UnixTimestamp
@@ -33,11 +34,9 @@ pub mod boync_anchor_program {
         auction_state.treasury = ctx.accounts.treasury.key().clone();
         auction_state.collector_mint = ctx.accounts.collector_mint.key().clone();
         auction_state.bidders_chest = ctx.accounts.bidders_chest.key().clone();
-        auction_state.tokens_amount = amount;
 
-        msg!("Initialized new Boync Auction State for token: {}, amount: {}", 
-            auction_state.treasury_mint.key(),
-            auction_state.tokens_amount);
+        msg!("Initialized new Boync Auction State for token: {}",
+            auction_state.treasury.key());
 
         // FIX: [BA-Program-FnWbMVHB]: Fetching bump within anchor context
         //      does not work.
@@ -73,7 +72,14 @@ pub mod boync_anchor_program {
 
         msg!("[BoyncDebug] Created CPI context");
 
-        anchor_spl::token::transfer(cpi_ctx, auction_state.tokens_amount)?;
+        anchor_spl::token::transfer(cpi_ctx, 1)?;
+
+        auction_state.tokens_spent = 0;
+        if auction_state.ended(clock.unix_timestamp)? {
+            auction_state.state = AuctionState::Ended;
+        } else {
+            auction_state.state = AuctionState::Created;
+        }
 
         msg!("[BoyncDebug] Done!");
 
@@ -152,6 +158,7 @@ pub mod boync_anchor_program {
 
         auction_state.last_bidder = ctx.accounts.bidder.key.clone();
         auction_state.end_auction_at += 60;
+        auction_state.tokens_spent += 1;
 
         Ok(())
     }
@@ -201,12 +208,11 @@ pub mod boync_anchor_program {
             signer_seeds
         );
 
-        anchor_spl::token::transfer(cpi_ctx, auction_state.tokens_amount)?;
+        anchor_spl::token::transfer(cpi_ctx, 1)?;
 
         // Use the `reload()` function on an account to reload it's state. Since we performed the
         // transfer, we are expecting the `amount` field to have changed.
         // TODO: *PROPERLY CLOSE TREASURY ACCOUNT*
-        auction_state.tokens_amount = 0;
 
         Ok(())
     }
@@ -355,7 +361,7 @@ pub struct BoyncAuction {
     collector_mint: Pubkey,
     treasury: Pubkey,
     bidders_chest: Pubkey,
-    tokens_amount: u64,
+    tokens_spent: u64,
     state: AuctionState, // 1 + 32
 
     last_bidder: Pubkey
