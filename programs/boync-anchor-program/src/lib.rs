@@ -1,11 +1,12 @@
 use anchor_lang::{
     prelude::*,
     solana_program::clock::Clock,
+    solana_program::system_program,
     { AnchorDeserialize, AnchorSerialize },
 };
 
 use anchor_spl::{
-    token:: { TokenAccount, Token, Mint, Transfer, CloseAccount },
+    token:: { TokenAccount, Token, Mint, Transfer },
 };
 
 use {
@@ -15,25 +16,28 @@ use {
 pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const WALLET_SEED: &[u8] = b"wallet";
 pub const AUCTION_SEED: &[u8] = b"auction";
+pub const MS_IN_SEC: i64 = 1000;
 
-declare_id!("CTNouVLjqMCabPFdDDoinhfuFLRH5hY5PxoQHsBf6drF");
+declare_id!("4kxV6HmuAevtG4EcH99jTmB6HBFqG4stqqq86J1RxQjv");
 
 #[program]
 pub mod boync_anchor_program {
     use super::*;
 
-    pub fn initialize(ctx: Context<InitializeAuction>, app_idx: i64, amount: u64, state_bump: u8) -> Result<()> {
+    pub fn initialize(ctx: Context<InitializeAuction>, app_idx: i64, state_bump: u8) -> Result<()> {
         msg!("[BoyncProgram] Initializing new Boync Auction State");
 
         let clock = Clock::get()?;
         let auction_state = &mut ctx.accounts.state;
 
-        auction_state.end_auction_at = app_idx; // App index is UnixTimestamp
+        auction_state.id = app_idx;             // App index is UnixTimestamp
+        auction_state.end_auction_at = app_idx;
         auction_state.authority = ctx.accounts.signer.key().clone();
         auction_state.treasury_mint = ctx.accounts.treasury_mint.key().clone();
         auction_state.treasury = ctx.accounts.treasury.key().clone();
         auction_state.collector_mint = ctx.accounts.collector_mint.key().clone();
         auction_state.bidders_chest = ctx.accounts.bidders_chest.key().clone();
+        auction_state.bump = state_bump;
 
         msg!("Initialized new Boync Auction State for token: {}",
             auction_state.treasury.key());
@@ -41,15 +45,15 @@ pub mod boync_anchor_program {
         // FIX: [BA-Program-FnWbMVHB]: Fetching bump within anchor context
         //      does not work.
         // let _bump = *ctx.bumps.get("auction").unwrap();
-        let _bump = state_bump;
-        let mint_of_token_being_sent_pk = ctx.accounts.treasury_mint.key().clone();
+        // let bump = state_bump;
+        let treasury_mint = ctx.accounts.treasury_mint.key().clone();
         let app_idx_bytes = app_idx.to_le_bytes();
         let seeds = &[
             AUCTION_SEED,
             ctx.accounts.signer.key.as_ref(),
-            mint_of_token_being_sent_pk.as_ref(),
+            treasury_mint.as_ref(),
             app_idx_bytes.as_ref(),
-            &[_bump]
+            &[auction_state.bump]
         ];
         let signer_seeds = &[&seeds[..]];
 
@@ -57,9 +61,9 @@ pub mod boync_anchor_program {
 
         // Token program instruction to send SPL token.
         let transfer_instruction = Transfer {
-            from: ctx.accounts.signer_withdraw_wallet.to_account_info(),
-            to: ctx.accounts.treasury.to_account_info(),
-            authority: ctx.accounts.signer.to_account_info(),
+            from:       ctx.accounts.signer_withdraw_wallet.to_account_info(),
+            to:         ctx.accounts.treasury.to_account_info(),
+            authority:  ctx.accounts.signer.to_account_info(),
         };
 
         msg!("[BoyncDebug] Created Transfer");
@@ -108,13 +112,13 @@ pub mod boync_anchor_program {
             AuctionError::InvalidState);
 
         auction.state = auction.state.end()?;
-        auction.end_auction_at = clock.unix_timestamp;
+        auction.end_auction_at = clock.unix_timestamp * MS_IN_SEC;
 
         Ok(())
     }
 
     /// Bid
-    pub fn bid(ctx: Context<UpdateAuction>, amount: u64, auction_bump: u8) -> Result<()> {
+    pub fn bid(ctx: Context<UpdateAuction>, amount: u64) -> Result<()> {
         let auction_state = &mut ctx.accounts.state;
         let clock = Clock::get()?;
 
@@ -128,24 +132,24 @@ pub mod boync_anchor_program {
 
         // Just transfer SPL Token to bidders_chest
         // let _bump = *ctx.bumps.get("auction").unwrap();
-        let _bump = auction_bump;
-        let _auction_auth = auction_state.authority.clone();
-        let mint_of_token_being_sent_pk = auction_state.treasury_mint.key().clone();
-        let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
+        // let bump = auction_state.bump;
+        let auction_auth = auction_state.authority.clone();
+        let treasury_mint = auction_state.treasury_mint.key().clone();
+        let app_idx_bytes = auction_state.id.to_le_bytes();
         let seeds = &[
             AUCTION_SEED,
-            _auction_auth.as_ref(),
-            mint_of_token_being_sent_pk.as_ref(),
+            auction_auth.as_ref(),
+            treasury_mint.as_ref(),
             app_idx_bytes.as_ref(),
-            &[_bump]
+            &[auction_state.bump]
         ];
         let signer_seeds = &[&seeds[..]];
 
         // Token program instruction to send SPL token.
         let transfer_instruction = Transfer {
-            from: ctx.accounts.bidder_withdraw_wallet.to_account_info(),
-            to: ctx.accounts.bidders_chest.to_account_info(),
-            authority: ctx.accounts.bidder.to_account_info(),
+            from:       ctx.accounts.bidder_withdraw_wallet.to_account_info(),
+            to:         ctx.accounts.bidders_chest.to_account_info(),
+            authority:  ctx.accounts.bidder.to_account_info(),
         };
 
         let cpi_ctx = CpiContext::new_with_signer(
@@ -157,13 +161,13 @@ pub mod boync_anchor_program {
         anchor_spl::token::transfer(cpi_ctx, amount)?;
 
         auction_state.last_bidder = ctx.accounts.bidder.key.clone();
-        auction_state.end_auction_at += 60;
+        auction_state.end_auction_at += 60 * MS_IN_SEC; // Add 60 seconds to countdown
         auction_state.tokens_spent += 1;
 
         Ok(())
     }
 
-    pub fn claim(ctx: Context<ClaimRewards>, auction_bump: u8) -> Result<()> {
+    pub fn claim(ctx: Context<ClaimRewards>) -> Result<()> {
         let auction_state = &mut ctx.accounts.state;
         let clock = Clock::get()?;
 
@@ -178,20 +182,26 @@ pub mod boync_anchor_program {
         // Only Winner can claim rewards.
         // FIX: *MAYBE REDUNDAND because of 
         // #[account(constraint=state.last_bidder == winner.key())
-        require!(auction_state.last_bidder.key() == ctx.accounts.winner.key(),
-            AuctionError::YouAreNotTheWinner);
+
+        // If last_bidder is system program Id => no bids has been placed => claimable only by authority
+        if auction_state.last_bidder.key() == system_program::ID.key() {
+            require!(auction_state.authority.key() == ctx.accounts.winner.key(),
+                AuctionError::YouAreNotTheAuthority);
+        } else {
+            require!(auction_state.last_bidder.key() == ctx.accounts.winner.key(),
+                AuctionError::YouAreNotTheWinner);
+        }
 
         // let _bump = *ctx.bumps.get("auction").unwrap();
-        let _bump = auction_bump;
-        let mint_of_token_being_sent_pk = ctx.accounts.treasury_mint.key().clone();
-        let _auction_auth = auction_state.authority.clone();
-        let app_idx_bytes = auction_state.end_auction_at.to_le_bytes();
+        let treasury_mint = ctx.accounts.treasury_mint.key().clone();
+        let auction_auth = auction_state.authority.clone();
+        let app_idx_bytes = auction_state.id.to_le_bytes();
         let seeds = &[
             AUCTION_SEED,
-            _auction_auth.as_ref(),
-            mint_of_token_being_sent_pk.as_ref(),
+            auction_auth.as_ref(),
+            treasury_mint.as_ref(),
             app_idx_bytes.as_ref(),
-            &[_bump]
+            &[auction_state.bump]
         ];
         let signer_seeds = &[&seeds[..]];
 
@@ -287,14 +297,14 @@ pub struct UpdateAuctionState<'info> {
 pub struct UpdateAuction<'info> {
     #[account(
         mut,
-        seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
+        seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.id.to_le_bytes().as_ref()],
         bump
     )]
     pub state: Account<'info, BoyncAuction>,
 
     #[account(
         mut,
-        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref(), state.end_auction_at.to_le_bytes().as_ref()],
+        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref(), state.id.to_le_bytes().as_ref()],
         bump
     )]
     /// Account which holds tokens bidded by biders
@@ -325,7 +335,8 @@ pub struct UpdateAuction<'info> {
 pub struct ClaimRewards<'info> {
     #[account(
         mut,
-        constraint=state.last_bidder == winner.key() @ AuctionError::YouAreNotTheWinner
+        seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.id.to_le_bytes().as_ref()],
+        bump
     )]
     pub state: Account<'info, BoyncAuction>,
 
@@ -355,16 +366,17 @@ pub struct ClaimRewards<'info> {
 
 #[account]
 pub struct BoyncAuction {
+    id:             i64,
     end_auction_at: i64, // 1 + 64
-    authority: Pubkey,
-    treasury_mint: Pubkey,
+    authority:      Pubkey,
+    treasury_mint:  Pubkey,
     collector_mint: Pubkey,
-    treasury: Pubkey,
-    bidders_chest: Pubkey,
-    tokens_spent: u64,
-    state: AuctionState, // 1 + 32
-
-    last_bidder: Pubkey
+    treasury:       Pubkey,
+    bidders_chest:  Pubkey,
+    tokens_spent:   u64,
+    state:          AuctionState, // 1 + 32
+    last_bidder:    Pubkey,
+    bump:           u8
 }
 
 impl BoyncAuction {
@@ -372,9 +384,8 @@ impl BoyncAuction {
     pub const AUCTION_SIZE: usize = size_of::<BoyncAuction>();
 
     pub fn ended(&self, now: i64) -> Result<bool> {
-        Ok(now > self.end_auction_at)
+        Ok((now * MS_IN_SEC) > self.end_auction_at)
     }
-
 }
 
 /**
@@ -427,6 +438,8 @@ pub enum AuctionError {
     AuctionOngoing,
     #[msg("You Are not the winner")]
     YouAreNotTheWinner,
+    #[msg("You Are not the authority")]
+    YouAreNotTheAuthority,
     /// Bid is too small.
     #[msg("Bid is too small.")]
     BidTooSmall,
