@@ -7,6 +7,7 @@ use anchor_lang::{
 
 use anchor_spl::{
     token:: { TokenAccount, Token, Mint, Transfer },
+    associated_token::AssociatedToken
 };
 
 use {
@@ -353,14 +354,19 @@ pub struct ClaimRewards<'info> {
     /// Winner's SPL Token account wallet 
     /// (The wallet who will receive the auctioned token(s))
     #[account(
-        mut,
+        init,
+        payer = winner,
+        associated_token::mint = treasury_mint,
+        associated_token::authority = winner,
         constraint=winner_withdraw_wallet.owner == winner.key(),
         constraint=winner_withdraw_wallet.mint == treasury_mint.key(),
     )]
     winner_withdraw_wallet: Account<'info, TokenAccount>,
 
     // Application level accounts
+    associated_token_program: Program<'info, AssociatedToken>,
     token_program: Program<'info, Token>,
+    system_program: Program<'info, System>,
     rent: Sysvar<'info, Rent>,
 }
 
