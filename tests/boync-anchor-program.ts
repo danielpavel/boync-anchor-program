@@ -176,15 +176,17 @@ describe("Boync Auction Tests", () => {
     const nowInSec = Math.floor(Date.now() / 1000);
     let uid = new anchor.BN(parseInt((nowInSec + HALF_HOUR).toString()));
     // const uidBuffer = uid.toBuffer("le", 8);
+    const uidBuffer = uid.toArrayLike(Buffer, "le", 8);
+
+    // console.log('[getPDAParams][test]: uid:', uid.toNumber());
 
     let [auctionStatePubKey, auctionStateBump] =
       await anchor.web3.PublicKey.findProgramAddress(
         [
-          // Buffer.from("auction"),
           AUCTION_SEED,
           auctionCreator.toBuffer(),
           treasuryMint.toBuffer(),
-          // uidBuffer,
+          uidBuffer,
         ],
         program.programId
       );
@@ -192,11 +194,10 @@ describe("Boync Auction Tests", () => {
     let [treasuryWalletPubKey, treasuryWalletBump] =
       await anchor.web3.PublicKey.findProgramAddress(
         [
-          // Buffer.from("treasury"),
           TREASURY_SEED,
           auctionCreator.toBuffer(),
           treasuryMint.toBuffer(),
-          // uidBuffer,
+          uidBuffer,
         ],
         program.programId
       );
@@ -204,11 +205,10 @@ describe("Boync Auction Tests", () => {
     let [biddersChestWalletPubKey, biddersChestWalletBump] =
       await anchor.web3.PublicKey.findProgramAddress(
         [
-          // Buffer.from("wallet"),
           CHEST_WALLET_SEED,
           auctionCreator.toBuffer(),
-          chestMint.toBuffer(),
-          // uidBuffer,
+          // chestMint.toBuffer(),
+          uidBuffer,
         ],
         program.programId
       );
@@ -285,23 +285,19 @@ describe("Boync Auction Tests", () => {
                               boyncTokenMintAddress);
   });
 
-  /*
   it("Is initialized!", async () => {
     let auctionCreatorTokenAccountBalancePre =
       await provider.connection.getTokenAccountBalance(auctionCreatorAssocWallet);
     assert.equal(auctionCreatorTokenAccountBalancePre.value.amount, "100000000");
 
-    const amount = new anchor.BN(20000000);
-
     await program.methods
-      .initialize(_pda.idx, amount, _pda.auctionStateBump)
+      .initialize(_pda.idx, _pda.auctionStateBump)
       .accounts({
         state: _pda.auctionStateKey,
         treasury: _pda.treasuryWalletKey,
         biddersChest: _pda.biddersChestWalletKey,
         signer: auctionCreator.publicKey,
         treasuryMint: treasuryMintAddress,
-        collectorMint: boyncTokenMintAddress,
         signerWithdrawWallet: auctionCreatorAssocWallet,
 
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -311,50 +307,45 @@ describe("Boync Auction Tests", () => {
       .signers([auctionCreator])
       .rpc();
 
-    // console.log(
-    //   `Initialized a new Boync Auctions instance. auctionCreator sent 20 tokens to be auctioned.`
+    // let auctionCreatorTokenAccountBalancePost =
+    //   await provider.connection.getTokenAccountBalance(auctionCreatorAssocWallet);
+    // assert.equal(auctionCreatorTokenAccountBalancePost.value.amount, "80000000");
+
+    // let treasuryAccountBalance =
+    //   await provider.connection.getTokenAccountBalance(_pda.treasuryWalletKey);
+    // assert.equal(treasuryAccountBalance.value.amount, "20000000");
+
+    // let chestAccountBalance =
+    // await provider.connection.getTokenAccountBalance(_pda.biddersChestWalletKey);
+    // assert.equal(chestAccountBalance.value.amount, "0");
+
+    // const state = await program.account.boyncAuction.fetch(
+    //   _pda.auctionStateKey
     // );
 
-    let auctionCreatorTokenAccountBalancePost =
-      await provider.connection.getTokenAccountBalance(auctionCreatorAssocWallet);
-    assert.equal(auctionCreatorTokenAccountBalancePost.value.amount, "80000000");
-
-    let treasuryAccountBalance =
-      await provider.connection.getTokenAccountBalance(_pda.treasuryWalletKey);
-    assert.equal(treasuryAccountBalance.value.amount, "20000000");
-
-    let chestAccountBalance =
-    await provider.connection.getTokenAccountBalance(_pda.biddersChestWalletKey);
-    assert.equal(chestAccountBalance.value.amount, "0");
-
-    const state = await program.account.boyncAuction.fetch(
-      _pda.auctionStateKey
-    );
-
-    assert.equal(state.tokensAmount.toString(), "20000000");
-    assert.equal(Object.keys(state.state)[0], 'created');
-
+    // assert.equal(state.tokensAmount.toString(), "20000000");
+    // assert.equal(Object.keys(state.state)[0], 'created');
   });
-  */
   
   it("User bid!", async () => {
 
     const amountToTreasury = new anchor.BN(20000000);
     const amountToBid = new anchor.BN(10000000);
 
-    let bidderBalancePre =
-      await provider.connection.getTokenAccountBalance(bidder1ATA);
-    assert.equal(bidderBalancePre.value.amount, "100000000");
- 
-     await program.methods
-      .initialize(_pda.idx, amountToTreasury, _pda.auctionStateBump)
+    // let auctionCreatorTokenAccountBalancePre =
+    //   await provider.connection.getTokenAccountBalance(auctionCreatorAssocWallet);
+    // assert.equal(auctionCreatorTokenAccountBalancePre.value.amount, "100000000");
+
+    console.log('[bid][test] here 1');
+
+    await program.methods
+      .initialize(_pda.idx, _pda.auctionStateBump)
       .accounts({
         state: _pda.auctionStateKey,
         treasury: _pda.treasuryWalletKey,
         biddersChest: _pda.biddersChestWalletKey,
         signer: auctionCreator.publicKey,
         treasuryMint: treasuryMintAddress,
-        collectorMint: boyncTokenMintAddress,
         signerWithdrawWallet: auctionCreatorAssocWallet,
 
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -364,12 +355,7 @@ describe("Boync Auction Tests", () => {
       .signers([auctionCreator])
       .rpc();
 
-    let state = await program.account.boyncAuction.fetch(
-      _pda.auctionStateKey
-    );
-
-    assert.equal(state.tokensAmount.toString(), "20000000");
-    assert.equal(Object.keys(state.state)[0], 'created');
+    console.log('[bid][test] here 2');
 
     await program.methods
       .start()
@@ -380,40 +366,45 @@ describe("Boync Auction Tests", () => {
       .signers([auctionCreator])
       .rpc();
 
-    state = await program.account.boyncAuction.fetch(
+    console.log('[bid][test] here 3');
+    // let state = await program.account.boyncAuction.fetch(
+    //   _pda.auctionStateKey
+    // );
+
+    let state = await program.account.boyncAuction2.fetch(
       _pda.auctionStateKey
-    );
+    )
 
     assert.equal(Object.keys(state.state)[0], 'started');
+    console.log('[bid][test] here 4');
 
     await program.methods
-      .bid(amountToBid, _pda.auctionStateBump)
+      .bid()
       .accounts({
         state: _pda.auctionStateKey,
         biddersChest: _pda.biddersChestWalletKey,
         bidder: bidder1.publicKey,
-        collectorMint: boyncTokenMintAddress,
-        bidderWithdrawWallet: bidder1ATA,
 
+        systemProgram: anchor.web3.SystemProgram.programId,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-        tokenProgram: spl.TOKEN_PROGRAM_ID,
       })
       .signers([bidder1])
       .rpc();
+    console.log('[bid][test] here 5');
 
-    let bidderBalancePost =
-      await provider.connection.getTokenAccountBalance(bidder1ATA);
-    assert.equal(bidderBalancePost.value.amount, "90000000");
+    // let bidderBalancePost =
+    //   await provider.connection.getTokenAccountBalance(bidder1ATA);
+    // assert.equal(bidderBalancePost.value.amount, "90000000");
 
-    let chestBalance =
-      await provider.connection.getTokenAccountBalance(_pda.biddersChestWalletKey);
-    assert.equal(chestBalance.value.amount, "10000000");
+    // let chestBalance =
+    //   await provider.connection.getTokenAccountBalance(_pda.biddersChestWalletKey);
+    // assert.equal(chestBalance.value.amount, "10000000");
 
-    state = await program.account.boyncAuction.fetch(
-      _pda.auctionStateKey
-    );
+    // state = await program.account.boyncAuction.fetch(
+    //   _pda.auctionStateKey
+    // );
 
-    assert.equal(bidder1.publicKey.toBase58(), state.lastBidder.toBase58());
+    // assert.equal(bidder1.publicKey.toBase58(), state.lastBidder.toBase58());
   });
 
   it("Claim bid!", async () => {
