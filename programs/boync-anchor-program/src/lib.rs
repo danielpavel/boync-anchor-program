@@ -81,6 +81,7 @@ pub mod boync_anchor_program {
         anchor_spl::token::transfer(cpi_ctx, 1)?;
 
         auction_state.sol_accrued = 0;
+        auction_state.claimed = 0;
         if auction_state.ended(clock.unix_timestamp)? {
             auction_state.state = AuctionState::Ended;
         } else {
@@ -201,6 +202,14 @@ pub mod boync_anchor_program {
         require!(auction_state.state == AuctionState::Started,
             AuctionError::InvalidState);
 
+        // Can't bid on an Auction that was already claimed.
+        require!(auction_state.claimed == 0,
+            AuctionError::AuctionClaimed);
+
+        // Can't bid on an Auction you're the authority of.
+        require!(auction_state.authority.key() != ctx.accounts.bidder.key(),
+            AuctionError::AuctionAuthorityBid);
+
         // Just transfer SPL Token to bidders_chest
         // let _bump = *ctx.bumps.get("auction").unwrap();
         // let bump = auction_state.bump;
@@ -292,18 +301,14 @@ pub mod boync_anchor_program {
         let auction_state = &mut ctx.accounts.state;
         let clock = Clock::get()?;
 
-        msg!("[claim] 1");
-
         // Can't withdraw on an Auction that is ongoing.
         require!(auction_state.ended(clock.unix_timestamp)?,
             AuctionError::AuctionOngoing);
 
-        msg!("[claim] 2");
         // Can't claim an Auction that is not in ended state.
         require!(auction_state.state == AuctionState::Ended,
             AuctionError::InvalidState);
 
-        msg!("[claim] 3");
         // Only Winner can claim rewards.
         // FIX: *MAYBE REDUNDAND because of 
         // #[account(constraint=state.last_bidder == winner.key())
@@ -317,7 +322,6 @@ pub mod boync_anchor_program {
                 AuctionError::YouAreNotTheWinner);
         }
 
-        msg!("[claim] 4");
         // let _bump = *ctx.bumps.get("auction").unwrap();
         let treasury_mint = ctx.accounts.treasury_mint.key().clone();
         let auction_auth = auction_state.authority.clone();
@@ -331,7 +335,6 @@ pub mod boync_anchor_program {
         ];
         let signer_seeds = &[&seeds[..]];
 
-        msg!("[claim] 5");
         // Token program instruction to send SPL token.
         let transfer_instruction = Transfer {
             from: ctx.accounts.treasury.to_account_info(),
@@ -339,21 +342,20 @@ pub mod boync_anchor_program {
             authority: auction_state.to_account_info(),
         };
 
-        msg!("[claim] 6");
         let cpi_ctx = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
             transfer_instruction,
             signer_seeds
         );
 
-        msg!("[claim] 7");
         anchor_spl::token::transfer(cpi_ctx, 1)?;
 
         // Use the `reload()` function on an account to reload it's state. Since we performed the
         // transfer, we are expecting the `amount` field to have changed.
         // TODO: *PROPERLY CLOSE TREASURY ACCOUNT*
 
-        msg!("[claim] 8");
+        auction_state.claimed = 1;
+
         Ok(())
     }
 }
@@ -661,6 +663,7 @@ pub struct BoyncAuction2 {
     treasury:       Pubkey,
     bidders_chest:  Pubkey,
     sol_accrued:    u64,
+    claimed:        u8,
     state:          AuctionState, // 1 + 32
     last_bidder:    Pubkey,
     bump:           u8
@@ -737,6 +740,10 @@ pub enum AuctionError {
     AuctionExpired,
     #[msg("Auction ongoing")]
     AuctionOngoing,
+    #[msg("Auction has already been claimed!")]
+    AuctionClaimed,
+    #[msg("You can't bid on an auction you created!")]
+    AuctionAuthorityBid,
     #[msg("You Are not the winner")]
     YouAreNotTheWinner,
     #[msg("You Are not the authority")]
