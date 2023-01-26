@@ -242,6 +242,12 @@ pub mod boync_anchor_program {
         auction_state.end_auction_at += 60 * MS_IN_SEC; // Add 60 seconds to countdown
         auction_state.sol_accrued += POINT_ONE_SOL;
 
+        emit!(BoyncBidEvent {
+            bidder_pubkey:          auction_state.last_bidder.clone(),
+            updated_end_timestamp:  auction_state.end_auction_at,
+            label:                  "bid".to_string()
+        });
+
         Ok(())
     }
 
@@ -723,6 +729,17 @@ impl AuctionState {
             _ => Err(AuctionError::AuctionTransitionInvalid.into()),
         }
     }
+}
+
+/**
+ * Events
+ */
+#[event]
+pub struct BoyncBidEvent {
+    pub bidder_pubkey: Pubkey,
+    pub updated_end_timestamp: i64,
+    #[index]
+    pub label: String,
 }
 
 /**
