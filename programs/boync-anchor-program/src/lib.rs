@@ -90,6 +90,11 @@ pub mod boync_anchor_program {
 
         msg!("[BoyncDebug] Done!");
 
+        emit!(BoyncInitializeEvent {
+            auction_pubkey: auction_state.key(),
+            label:          "initialize".to_string()
+        });
+
        Ok(())
     }
 
@@ -185,6 +190,12 @@ pub mod boync_anchor_program {
         auction.state = auction.state.end()?;
         auction.end_auction_at = clock.unix_timestamp * MS_IN_SEC;
 
+        emit!(BoyncEndEvent {
+            auction_pubkey:         auction.key(),
+            updated_end_timestamp:  auction.end_auction_at,
+            label:                  "end".to_string()
+        });
+
         Ok(())
     }
 
@@ -243,6 +254,7 @@ pub mod boync_anchor_program {
         auction_state.sol_accrued += POINT_ONE_SOL;
 
         emit!(BoyncBidEvent {
+            auction_pubkey:         auction_state.key(),
             bidder_pubkey:          auction_state.last_bidder.clone(),
             updated_end_timestamp:  auction_state.end_auction_at,
             label:                  "bid".to_string()
@@ -736,7 +748,21 @@ impl AuctionState {
  */
 #[event]
 pub struct BoyncBidEvent {
+    pub auction_pubkey: Pubkey,
     pub bidder_pubkey: Pubkey,
+    pub updated_end_timestamp: i64,
+    #[index]
+    pub label: String,
+}
+#[event]
+pub struct BoyncInitializeEvent {
+    pub auction_pubkey: Pubkey,
+    #[index]
+    pub label: String,
+}
+#[event]
+pub struct BoyncEndEvent {
+    pub auction_pubkey: Pubkey,
     pub updated_end_timestamp: i64,
     #[index]
     pub label: String,
