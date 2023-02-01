@@ -3,28 +3,19 @@ import { Program } from "@project-serum/anchor";
 // import { Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { BoyncAnchorProgram } from "../target/types/boync_anchor_program";
 import * as spl from '@solana/spl-token';
+import {
+  createMintToCheckedInstruction,
+} from "@solana/spl-token";
 import { assert, expect } from 'chai';
+import * as _ from 'lodash'
+import { LAMPORTS_PER_SOL, Transaction } from "@solana/web3.js";
 
 const TREASURY_SEED = anchor.utils.bytes.utf8.encode("treasury");
 const AUCTION_SEED = anchor.utils.bytes.utf8.encode("auction");
 const CHEST_WALLET_SEED = anchor.utils.bytes.utf8.encode("wallet");
+const BIDDER_SEED = anchor.utils.bytes.utf8.encode("bidder");
 
-const HALF_HOUR = (30 * 60);
-
-/* Scraped from https://stackoverflow.com/questions/45466040/verify-that-an-exception-is-thrown-using-mocha-chai-and-async-await */
-const expectThrowsAsync = async (method, errorMessage?) => {
-  let error = null
-  try {
-    await method()
-  }
-  catch (err) {
-    error = err
-  }
-  expect(error).to.be.an('Error')
-  if (errorMessage) {
-    expect(error.message).to.equal(errorMessage)
-  }
-}
+const HALF_HOUR_IN_MS = (30 * 60 * 1000);
 
 interface PDAParams {
   treasuryBump:       number,
@@ -36,268 +27,221 @@ interface PDAParams {
   auctionStateKey:    anchor.web3.PublicKey,
 }
 
-console.log('[new program keypair]:', new anchor.web3.Keypair().publicKey.toBase58())
-
-describe("Boync Auction Tests", () => {
-  // Configure the client to use the local cluster.
-  anchor.setProvider(anchor.AnchorProvider.env());
-  
-
-  const program = anchor.workspace.BoyncAnchorProgram as Program<BoyncAnchorProgram>;
-  const _wallet = anchor.Wallet.local()
-  const provider = anchor.getProvider()
-
-  let treasuryMintAddress: anchor.web3.PublicKey;
-  let boyncTokenMintAddress: anchor.web3.PublicKey;
-  let bidder1: anchor.web3.Keypair;
-  let bidder1ATA: anchor.web3.PublicKey;
-  let auctionCreator: anchor.web3.Keypair;
-  let auctionCreatorAssocWallet: anchor.web3.PublicKey;
-  let user2: anchor.web3.Keypair;
-  let user2AssocWallet: anchor.web3.PublicKey;
-  let _pda: PDAParams;
-
-
-  const createUserAndAssociatedWallet = async (mint?: anchor.web3.PublicKey): 
-    Promise<[anchor.web3.Keypair, anchor.web3.PublicKey | undefined]> => {
-
-    const user = new anchor.web3.Keypair();
-    let userATA: anchor.web3.PublicKey | undefined = undefined;
-
-    // Fund user with some SOL
-    let txFund = new anchor.web3.Transaction().add(
-      anchor.web3.SystemProgram.transfer({
-        fromPubkey: _wallet.publicKey,
-        toPubkey: user.publicKey,
-        lamports: 5 * anchor.web3.LAMPORTS_PER_SOL,
-      })
+const createMint = async (
+  provider: anchor.Provider,
+  payer: anchor.web3.Keypair
+): Promise<anchor.web3.PublicKey | undefined> => {
+  const tokenMint = new anchor.web3.Keypair();
+  const lamportsForMint =
+    await provider.connection.getMinimumBalanceForRentExemption(
+      spl.MintLayout.span
     );
-    const sigTxFund = await provider.sendAndConfirm(txFund);
-    // console.log(`[${user.publicKey.toBase58()}] Funded new account with 5 SOL: ${sigTxFund}`);
 
-    if (mint) {
-      // Create a token account for the user and mint some tokens
-      userATA = await spl.createAssociatedTokenAccount(
-        provider.connection, // connection
-        user, // fee payer
-        mint, // mint
-        user.publicKey // owner,
-      );
-
-      // if (typeof userATA === "undefined" || userATA === null) {
-      //   console.log("[BoyncDebug] Failed to create userATA");
-      // } else {
-      //   console.log(
-      //     `[${userATA.toBase58()}] New associated account for mint ${mint.toBase58()}: ${userATA}`
-      //   );
-      // }
-
-      // mint some tokens
-      // BROKEN!!! FIX in [BA-Program-vLPY3BPX]
-      // let txhash = await spl.mintToChecked(
-      //   provider.connection, // connection
-      //   user, // fee payer
-      //   mint, // mint
-      //   userATA, // receiver (sholud be a token account)
-      //   provider.wallet.publicKey, // mint authority
-      //   100e6, // amount. if your decimals is 6, you mint 10^6 for 1 token.
-      //   6 // decimals
-      // );
-
-      // if (typeof txhash === 'undefined' || txhash === null) {
-      //   console.log('[BoyncDebug] Txhash is undefined | null');
-      // } else {
-      //   console.log('[BoyncDebug] tx:', txhash);
-      // }
-
-      let tx = new anchor.web3.Transaction().add(
-        spl.createMintToCheckedInstruction(
-          mint, // mint
-          userATA, // receiver (sholud be a token account)
-          _wallet.publicKey, // mint authority
-          100e6, // amount. if your decimals is 6, you mint 10^6 for 1 token.
-          6 // decimals
-        )
-      );
-
-      // TODO: Do we need this?
-      // provider.wallet.signTransaction(tx);
-      // TODO: Why don't I need singers?
-      await provider.sendAndConfirm(tx);
-      // console.log("[BoyncDebug] Minted 100 tokens for userATA", userATA.toBase58());
-    }
-
-    return [user, userATA];
-  }
-
-  const createMint = async (
-    connection: anchor.web3.Connection
-  ): Promise<anchor.web3.PublicKey> => {
-    const tokenMint = new anchor.web3.Keypair();
-    const lamportsForMint =
-      await provider.connection.getMinimumBalanceForRentExemption(
-        spl.MintLayout.span
-      );
-
-    let tx = new anchor.web3.Transaction().add(
+  let tx = new anchor.web3.Transaction()
+    .add(
       // Create the mint account
       anchor.web3.SystemProgram.createAccount({
         programId: spl.TOKEN_PROGRAM_ID,
         space: spl.MintLayout.span,
-        fromPubkey: _wallet.publicKey,
+        fromPubkey: payer.publicKey,
         newAccountPubkey: tokenMint.publicKey,
         lamports: lamportsForMint,
-      }))
-      // Init the mint account
-      .add(
-        spl.createInitializeMintInstruction(
-          tokenMint.publicKey,
-          6,
-          _wallet.publicKey,
-          _wallet.publicKey,
-          spl.TOKEN_PROGRAM_ID,
-        )
-      );
+      })
+    )
+    // Init the mint account
+    .add(
+      spl.createInitializeMintInstruction(
+        tokenMint.publicKey,
+        0,
+        payer.publicKey,
+        payer.publicKey,
+        spl.TOKEN_PROGRAM_ID
+      )
+    );
 
-    const signature = await provider.sendAndConfirm(tx, [tokenMint]);
-
-    // console.log(
-    //   `[${tokenMint.publicKey}] Created new mint account at ${signature}`
-    // );
+  try {
+    await provider.sendAndConfirm(tx, [tokenMint]);
 
     return tokenMint.publicKey;
-  };
+  } catch (error) {
+    return undefined;
+  }
+};
 
-  const getPDAParams = async (
-    auctionCreator: anchor.web3.PublicKey,
-    treasuryMint: anchor.web3.PublicKey,
-    chestMint: anchor.web3.PublicKey
-  ): Promise<PDAParams> => {
-    const nowInSec = Math.floor(Date.now() / 1000);
-    let uid = new anchor.BN(parseInt((nowInSec + HALF_HOUR).toString()));
-    // const uidBuffer = uid.toBuffer("le", 8);
-    const uidBuffer = uid.toArrayLike(Buffer, "le", 8);
+const aidrop = async (
+  provider: anchor.Provider,
+  payer: anchor.web3.Keypair,
+  pubkey: anchor.web3.PublicKey,
+  amount: number
+) => {
+  const txFund = new anchor.web3.Transaction().add(
+    anchor.web3.SystemProgram.transfer({
+      fromPubkey: payer.publicKey,
+      toPubkey: pubkey,
+      lamports: amount * anchor.web3.LAMPORTS_PER_SOL,
+    })
+  );
 
-    // console.log('[getPDAParams][test]: uid:', uid.toNumber());
+  await provider.sendAndConfirm(txFund);
+};
 
-    let [auctionStatePubKey, auctionStateBump] =
-      await anchor.web3.PublicKey.findProgramAddress(
-        [
-          AUCTION_SEED,
-          auctionCreator.toBuffer(),
-          treasuryMint.toBuffer(),
-          uidBuffer,
-        ],
-        program.programId
-      );
+const createAssociatedWallet = async (
+  provider: anchor.Provider,
+  mintAuth: anchor.web3.PublicKey,
+  user: anchor.web3.Keypair,
+  mint?: anchor.web3.PublicKey
+): Promise<anchor.web3.PublicKey | undefined> => {
 
-    let [treasuryWalletPubKey, treasuryWalletBump] =
-      await anchor.web3.PublicKey.findProgramAddress(
-        [
-          TREASURY_SEED,
-          auctionCreator.toBuffer(),
-          treasuryMint.toBuffer(),
-          uidBuffer,
-        ],
-        program.programId
-      );
-
-    let [biddersChestWalletPubKey, biddersChestWalletBump] =
-      await anchor.web3.PublicKey.findProgramAddress(
-        [
-          CHEST_WALLET_SEED,
-          auctionCreator.toBuffer(),
-          // chestMint.toBuffer(),
-          uidBuffer,
-        ],
-        program.programId
-      );
-
-    return {
-      idx: uid,
-      treasuryBump: treasuryWalletBump,
-      treasuryWalletKey: treasuryWalletPubKey,
-      auctionStateKey: auctionStatePubKey,
-      auctionStateBump: auctionStateBump,
-      biddersChestWalletKey: biddersChestWalletPubKey,
-      biddersChestBump: biddersChestWalletBump,
-    };
-  };
-
-  /**
-   * OUTDATED!!!
-   */
-  const readTokenAccount = async (
-    accountPublicKey: anchor.web3.PublicKey,
-    provider: anchor.Provider
-  ): Promise<[spl.RawAccount, string]> => {
-    const tokenInfo = await provider.connection.getAccountInfo(
-      accountPublicKey
+  if (mint) {
+    // Create a token account for the user and mint some tokens
+    const userATA = await spl.getOrCreateAssociatedTokenAccount(
+      provider.connection, // connection
+      user, // fee payer
+      mint, // mint
+      user.publicKey, // owner,
+      false
     );
-    const data = Buffer.from(tokenInfo.data);
-    const accountInfo = spl.AccountLayout.decode(data);
 
-    const amount = (accountInfo.amount as any as Buffer).readBigUInt64LE();
-    return [accountInfo, amount.toString()];
+    if (_.isEmpty(userATA)) {
+      console.log("[BoyncDebug] Failed to create userATA!");
+      return undefined;
+    } else {
+      // console.log(
+      //   `[${userATA.address.toString()}] New associated token account for mint ${mint.toBase58()}`
+      // );
+    }
+
+    // Mint some tokens
+    let tx = new Transaction().add(
+      createMintToCheckedInstruction(
+        mint, // mint
+        userATA.address, // receiver (sholud be a token account)
+        mintAuth, // mint authority
+        1, // amount. if your decimals is 8, you mint 10^8 for 1 token.
+        0 // decimals
+        // [signer1, signer2 ...], // only multisig account will use
+      )
+    );
+
+    await provider.sendAndConfirm(tx);
+
+    // console.log(
+    //   "[BoyncDebug] Minted 1 token for userATA",
+    //   userATA.address.toString()
+    // );
+
+    return userATA.address;
+  }
+
+  return undefined;
+};
+
+const buildRequiredPDAs = async (
+  program: Program<BoyncAnchorProgram>,
+  auctionCreator: anchor.web3.PublicKey,
+  treasuryMint: anchor.web3.PublicKey,
+): Promise<PDAParams> => {
+
+  const nowInSec = Math.floor(Date.now());
+  let uid = new anchor.BN(parseInt((nowInSec + HALF_HOUR_IN_MS).toString()));
+  const uidBuffer = uid.toArrayLike(Buffer, "le", 8);
+
+  let [auctionStatePubKey, auctionStateBump] =
+    await anchor.web3.PublicKey.findProgramAddress(
+      [
+        AUCTION_SEED,
+        auctionCreator.toBuffer(),
+        treasuryMint.toBuffer(),
+        uidBuffer,
+      ],
+      program.programId
+    );
+
+  let [treasuryWalletPubKey, treasuryWalletBump] =
+    await anchor.web3.PublicKey.findProgramAddress(
+      [
+        TREASURY_SEED,
+        auctionCreator.toBuffer(),
+        treasuryMint.toBuffer(),
+        uidBuffer,
+      ],
+      program.programId
+    );
+
+  let [biddersChestWalletPubKey, biddersChestWalletBump] =
+    await anchor.web3.PublicKey.findProgramAddress(
+      [
+        CHEST_WALLET_SEED,
+        auctionCreator.toBuffer(),
+        // chestMint.toBuffer(),
+        uidBuffer,
+      ],
+      program.programId
+    );
+
+  return {
+    idx: uid,
+    treasuryBump: treasuryWalletBump,
+    treasuryWalletKey: treasuryWalletPubKey,
+    auctionStateKey: auctionStatePubKey,
+    auctionStateBump: auctionStateBump,
+    biddersChestWalletKey: biddersChestWalletPubKey,
+    biddersChestBump: biddersChestWalletBump,
   };
+};
 
-  const readMintAccount = async (
-    mintPublicKey: anchor.web3.PublicKey,
-    provider: anchor.Provider
-  ): Promise<spl.RawMint> => {
-    const mintInfo = await provider.connection.getAccountInfo(mintPublicKey);
-    const data = Buffer.from(mintInfo.data);
-    const accountInfo = spl.MintLayout.decode(data);
 
-    // TODO: Not sure if I need this
-    // return {
-    //   ...accountInfo,
-    //   mintAuthority:
-    //     accountInfo.mintAuthority == null
-    //       ? null
-    //       : anchor.web3.PublicKey.decode(Buffer.from(accountInfo.mintAuthority)),
-    //   freezeAuthority:
-    //     accountInfo.freezeAuthority == null
-    //       ? null
-    //       : anchor.web3.PublicKey.decode(accountInfo.freezeAuthority),
-    // };
+describe("Boync Auction Init Tests", () => {
+  anchor.setProvider(anchor.AnchorProvider.env());
+  const program = anchor.workspace.BoyncAnchorProgram as Program<BoyncAnchorProgram>;
+  const provider = anchor.getProvider()
+  const wallet = anchor.Wallet.local()
 
-    return accountInfo;
-  };
+  let treasuryMint: anchor.web3.PublicKey;
+  let auctionCreator = new anchor.web3.Keypair();
+  let auctionCreatorAssocWallet: anchor.web3.PublicKey | undefined;
+
+  let pdas: PDAParams;
 
   beforeEach(async () => {
-    treasuryMintAddress = await createMint(provider.connection);
-    boyncTokenMintAddress = await createMint(provider.connection);
+    /* Create Mint Account for a new SPL token */
+    treasuryMint = await createMint(provider, wallet.payer);
 
-    [auctionCreator, auctionCreatorAssocWallet] = await createUserAndAssociatedWallet(
-      treasuryMintAddress
+    /* Airdrop auctionCreator some SOL to cover future transactions fees */
+    await aidrop(provider, wallet.payer, auctionCreator.publicKey, 5);
+
+    /**
+     * In order for auctionCreator to create / initialize a Boync Auction we need to have
+     * create an ATA (associated token account) for auctionCreator and mint some SPL tokens in that account.
+     */
+    auctionCreatorAssocWallet = await createAssociatedWallet(
+      provider,
+      wallet.payer.publicKey,
+      auctionCreator,
+      treasuryMint
     );
 
-    [bidder1, bidder1ATA] = await createUserAndAssociatedWallet(
-      boyncTokenMintAddress
-    );
+    /* build other needed PDAs (program derrived addresses) */
+    pdas = await buildRequiredPDAs(program, auctionCreator.publicKey, treasuryMint)
 
-    let _rest;
-    [user2, ..._rest] = await createUserAndAssociatedWallet();
+    /**
+     * At this point auctionCreator is ready to create a Boync Auction, phew!
+     */
+  })
 
-    _pda = await getPDAParams(auctionCreator.publicKey,
-                              treasuryMintAddress,
-                              boyncTokenMintAddress);
-  });
-
-  it("Is initialized!", async () => {
+  it("Auction successfully initialized", async () => {
     let auctionCreatorTokenAccountBalancePre =
       await provider.connection.getTokenAccountBalance(auctionCreatorAssocWallet);
-    assert.equal(auctionCreatorTokenAccountBalancePre.value.amount, "100000000");
+    assert.equal(auctionCreatorTokenAccountBalancePre.value.amount, "1");
 
     await program.methods
-      .initialize(_pda.idx, _pda.auctionStateBump)
+      .initialize(pdas.idx, pdas.auctionStateBump)
       .accounts({
-        state: _pda.auctionStateKey,
-        treasury: _pda.treasuryWalletKey,
-        biddersChest: _pda.biddersChestWalletKey,
+        state: pdas.auctionStateKey,
+        treasury: pdas.treasuryWalletKey,
+        biddersChest: pdas.biddersChestWalletKey,
         signer: auctionCreator.publicKey,
-        treasuryMint: treasuryMintAddress,
+        treasuryMint: treasuryMint,
         signerWithdrawWallet: auctionCreatorAssocWallet,
 
         systemProgram: anchor.web3.SystemProgram.programId,
@@ -307,188 +251,141 @@ describe("Boync Auction Tests", () => {
       .signers([auctionCreator])
       .rpc();
 
-    // let auctionCreatorTokenAccountBalancePost =
-    //   await provider.connection.getTokenAccountBalance(auctionCreatorAssocWallet);
-    // assert.equal(auctionCreatorTokenAccountBalancePost.value.amount, "80000000");
+    let auctionCreatorTokenAccountBalancePost =
+      await provider.connection.getTokenAccountBalance(auctionCreatorAssocWallet);
+    assert.equal(auctionCreatorTokenAccountBalancePost.value.amount, "0");
 
-    // let treasuryAccountBalance =
-    //   await provider.connection.getTokenAccountBalance(_pda.treasuryWalletKey);
-    // assert.equal(treasuryAccountBalance.value.amount, "20000000");
+    let treasuryAccountBalance =
+      await provider.connection.getTokenAccountBalance(pdas.treasuryWalletKey);
+    assert.equal(treasuryAccountBalance.value.amount, "1");
 
-    // let chestAccountBalance =
-    // await provider.connection.getTokenAccountBalance(_pda.biddersChestWalletKey);
-    // assert.equal(chestAccountBalance.value.amount, "0");
-
-    // const state = await program.account.boyncAuction.fetch(
-    //   _pda.auctionStateKey
-    // );
-
-    // assert.equal(state.tokensAmount.toString(), "20000000");
-    // assert.equal(Object.keys(state.state)[0], 'created');
-  });
-  
-  it("User bid!", async () => {
-
-    const amountToTreasury = new anchor.BN(20000000);
-    const amountToBid = new anchor.BN(10000000);
-
-    // let auctionCreatorTokenAccountBalancePre =
-    //   await provider.connection.getTokenAccountBalance(auctionCreatorAssocWallet);
-    // assert.equal(auctionCreatorTokenAccountBalancePre.value.amount, "100000000");
-
-    console.log('[bid][test] here 1');
-
-    await program.methods
-      .initialize(_pda.idx, _pda.auctionStateBump)
-      .accounts({
-        state: _pda.auctionStateKey,
-        treasury: _pda.treasuryWalletKey,
-        biddersChest: _pda.biddersChestWalletKey,
-        signer: auctionCreator.publicKey,
-        treasuryMint: treasuryMintAddress,
-        signerWithdrawWallet: auctionCreatorAssocWallet,
-
-        systemProgram: anchor.web3.SystemProgram.programId,
-        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-        tokenProgram: spl.TOKEN_PROGRAM_ID,
-      })
-      .signers([auctionCreator])
-      .rpc();
-
-    console.log('[bid][test] here 2');
-
-    await program.methods
-      .start()
-      .accounts({
-        auction: _pda.auctionStateKey,
-        authority: auctionCreator.publicKey
-      })
-      .signers([auctionCreator])
-      .rpc();
-
-    console.log('[bid][test] here 3');
-    // let state = await program.account.boyncAuction.fetch(
-    //   _pda.auctionStateKey
-    // );
-
-    let state = await program.account.boyncAuction2.fetch(
-      _pda.auctionStateKey
-    )
-
-    assert.equal(Object.keys(state.state)[0], 'started');
-    console.log('[bid][test] here 4');
-
-    await program.methods
-      .bid()
-      .accounts({
-        state: _pda.auctionStateKey,
-        biddersChest: _pda.biddersChestWalletKey,
-        bidder: bidder1.publicKey,
-
-        systemProgram: anchor.web3.SystemProgram.programId,
-        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-      })
-      .signers([bidder1])
-      .rpc();
-    console.log('[bid][test] here 5');
-
-    // let bidderBalancePost =
-    //   await provider.connection.getTokenAccountBalance(bidder1ATA);
-    // assert.equal(bidderBalancePost.value.amount, "90000000");
-
-    // let chestBalance =
-    //   await provider.connection.getTokenAccountBalance(_pda.biddersChestWalletKey);
-    // assert.equal(chestBalance.value.amount, "10000000");
-
-    // state = await program.account.boyncAuction.fetch(
-    //   _pda.auctionStateKey
-    // );
-
-    // assert.equal(bidder1.publicKey.toBase58(), state.lastBidder.toBase58());
-  });
-
-  it("Claim bid!", async () => {
-
-    /* NOT IMPLEMENTED
-    const amountToTreasury = new anchor.BN(20000000);
-    const amountToBid = new anchor.BN(10000000);
-
-    let bidderBalancePre =
-      await provider.connection.getTokenAccountBalance(bidder1ATA);
-    assert.equal(bidderBalancePre.value.amount, "100000000");
- 
-     await program.methods
-      .initialize(_pda.idx, amountToTreasury, _pda.auctionStateBump)
-      .accounts({
-        state: _pda.auctionStateKey,
-        treasury: _pda.treasuryWalletKey,
-        biddersChest: _pda.biddersChestWalletKey,
-        signer: auctionCreator.publicKey,
-        treasuryMint: treasuryMintAddress,
-        collectorMint: boyncTokenMintAddress,
-        signerWithdrawWallet: auctionCreatorAssocWallet,
-
-        systemProgram: anchor.web3.SystemProgram.programId,
-        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-        tokenProgram: spl.TOKEN_PROGRAM_ID,
-      })
-      .signers([auctionCreator])
-      .rpc();
-
-    let state = await program.account.boyncAuction.fetch(
-      _pda.auctionStateKey
+    const state = await program.account.boyncAuction2.fetch(
+      pdas.auctionStateKey
     );
 
-    assert.equal(state.tokensAmount.toString(), "20000000");
     assert.equal(Object.keys(state.state)[0], 'created');
+  })
+})
 
+describe("Boync Auction Place Bid Tests", () => {
+  anchor.setProvider(anchor.AnchorProvider.env());
+  const program = anchor.workspace.BoyncAnchorProgram as Program<BoyncAnchorProgram>;
+  const provider = anchor.getProvider()
+  const wallet = anchor.Wallet.local()
+
+  let treasuryMint: anchor.web3.PublicKey;
+  let auctionCreator = new anchor.web3.Keypair();
+  let auctionCreatorAssocWallet: anchor.web3.PublicKey | undefined;
+
+  const bidder = new anchor.web3.Keypair();
+  const bidderTs: number = Date.now();
+  let bidderPDA: anchor.web3.PublicKey;
+  let bidderPDABump: number;
+
+  let pdas: PDAParams;
+
+  beforeEach(async () => {
+    /* Create Mint Account for a new SPL token */
+    treasuryMint = await createMint(provider, wallet.payer);
+
+    /* Airdrop auctionCreator some SOL to cover future transactions fees */
+    await aidrop(provider, wallet.payer, auctionCreator.publicKey, 5);
+    /* Airdrop bidder some SOL */
+    await aidrop(provider, wallet.payer, bidder.publicKey, 4);
+
+    /**
+     * In order for auctionCreator to create / initialize a Boync Auction we need to have
+     * create an ATA (associated token account) for auctionCreator and mint some SPL tokens in that account.
+     */
+    auctionCreatorAssocWallet = await createAssociatedWallet(
+      provider,
+      wallet.payer.publicKey,
+      auctionCreator,
+      treasuryMint
+    );
+
+    /* build other needed PDAs (program derrived addresses) */
+    pdas = await buildRequiredPDAs(program, auctionCreator.publicKey, treasuryMint)
+
+    const uidBuffer = new anchor.BN(bidderTs).toArrayLike(Buffer, "le", 8);
+    const [pda, bump] =
+      await anchor.web3.PublicKey.findProgramAddress(
+        [
+          BIDDER_SEED,
+          pdas.auctionStateKey.toBuffer(),
+          bidder.publicKey.toBuffer(),
+          uidBuffer,
+        ],
+        program.programId
+      );
+
+    bidderPDA = pda;
+    bidderPDABump = bump;
+
+    /**
+     * At this point auctionCreator is ready to create a Boync Auction, phew!
+     */
     await program.methods
-      .start()
+      .initialize(pdas.idx, pdas.auctionStateBump)
       .accounts({
-        auction: _pda.auctionStateKey,
-        authority: auctionCreator.publicKey
+        state: pdas.auctionStateKey,
+        treasury: pdas.treasuryWalletKey,
+        biddersChest: pdas.biddersChestWalletKey,
+        signer: auctionCreator.publicKey,
+        treasuryMint: treasuryMint,
+        signerWithdrawWallet: auctionCreatorAssocWallet,
+
+        systemProgram: anchor.web3.SystemProgram.programId,
+        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        tokenProgram: spl.TOKEN_PROGRAM_ID,
       })
       .signers([auctionCreator])
       .rpc();
 
-    state = await program.account.boyncAuction.fetch(
-      _pda.auctionStateKey
-    );
-
-    assert.equal(Object.keys(state.state)[0], 'started');
-
+    /* Start the auction manually before anyone can bid */
     await program.methods
-      .bid(amountToBid, _pda.auctionStateBump)
+      .start()
       .accounts({
-        state: _pda.auctionStateKey,
-        biddersChest: _pda.biddersChestWalletKey,
-        bidder: bidder1.publicKey,
-        collectorMint: boyncTokenMintAddress,
-        bidderWithdrawWallet: bidder1ATA,
-
-        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-        tokenProgram: spl.TOKEN_PROGRAM_ID,
+        auction: pdas.auctionStateKey,
+        authority: auctionCreator.publicKey,
       })
-      .signers([bidder1])
+      .signers([auctionCreator])
+      .rpc();
+  });
+
+  it('Simple bid test', async () => {
+    await program.methods
+      .bid(new anchor.BN(bidderTs))
+      .accounts({
+          state: pdas.auctionStateKey,
+          biddersChest: pdas.biddersChestWalletKey,
+          bidderState: bidderPDA,
+          bidder: bidder.publicKey,
+
+          systemProgram: anchor.web3.SystemProgram.programId,
+          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+      })
+      .signers([bidder])
       .rpc();
 
-    let bidderBalancePost =
-      await provider.connection.getTokenAccountBalance(bidder1ATA);
-    assert.equal(bidderBalancePost.value.amount, "90000000");
+    /* Check the bidder chest */
+    let bidderBalance =
+      await provider.connection.getBalance(bidder.publicKey);
+    // assert.equal(, 3.9);
+    expect((bidderBalance / LAMPORTS_PER_SOL) > 3.89 && (bidderBalance / LAMPORTS_PER_SOL) < 3.9);
 
-    let chestBalance =
-      await provider.connection.getTokenAccountBalance(_pda.biddersChestWalletKey);
-    assert.equal(chestBalance.value.amount, "10000000");
+    /* Check the chest that collects bidder fees */
+    let biddersChestBalance =
+      await provider.connection.getBalance(pdas.biddersChestWalletKey);
+    assert.equal((biddersChestBalance / LAMPORTS_PER_SOL), 0.1);
 
-    state = await program.account.boyncAuction.fetch(
-      _pda.auctionStateKey
-    );
+    const bidderPDAs = await program.account.boyncUserBid.all()
 
-    // console.log('[bidder]:', bidder1.publicKey.toBase58());
-    // console.log('[state]:', state.lastBidder.toBase58());
-
-    assert.equal(bidder1.publicKey.toBase58(), state.lastBidder.toBase58());
-    */
+    for (const bidderAccount of bidderPDAs) {
+      assert.equal(bidderAccount.account.auction.toString(), pdas.auctionStateKey.toString());
+      assert.equal(bidderAccount.account.bidder.toString(), bidder.publicKey.toString());
+      assert.equal(bidderAccount.account.ts.toNumber(), bidderTs);
+    }
   })
 
 });

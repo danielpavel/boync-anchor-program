@@ -18,6 +18,7 @@ use {
 pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const WALLET_SEED: &[u8] = b"wallet";
 pub const AUCTION_SEED: &[u8] = b"auction";
+pub const BIDDER_SEED: &[u8] = b"bidder";
 pub const MS_IN_SEC: i64 = 1000;
 
 declare_id!("Ed1gXfSgsu8Cj8ZeKc8hPKXog4dNuBaYagFZPFrVDsmv");
@@ -199,7 +200,7 @@ pub mod boync_anchor_program {
         Ok(())
     }
 
-    pub fn bid(ctx: Context<UpdateAuction2>) -> Result<()> {
+    pub fn bid(ctx: Context<UpdateAuction2>, ts: i64) -> Result<()> {
 
         const POINT_ONE_SOL: u64 = LAMPORTS_PER_SOL / 10;
         let auction_state = &mut ctx.accounts.state;
@@ -252,6 +253,12 @@ pub mod boync_anchor_program {
         auction_state.last_bidder = ctx.accounts.bidder.key.clone();
         auction_state.end_auction_at += 60 * MS_IN_SEC; // Add 60 seconds to countdown
         auction_state.sol_accrued += POINT_ONE_SOL;
+
+        /* Store bid state */
+        let bidder_state = &mut ctx.accounts.bidder_state;
+        bidder_state.auction = auction_state.key();
+        bidder_state.bidder = auction_state.last_bidder.key();
+        bidder_state.ts = ts;
 
         emit!(BoyncBidEvent {
             auction_pubkey:         auction_state.key(),
@@ -460,6 +467,7 @@ pub struct InitializeAuction2<'info> {
     )]
     /// Account holding token being auctioned.
     pub treasury: Account<'info, TokenAccount>,
+
     #[account(
         mut,
         seeds = [WALLET_SEED, signer.key().as_ref(), app_idx.to_le_bytes().as_ref()],
@@ -472,7 +480,8 @@ pub struct InitializeAuction2<'info> {
     // Users and accounts in the system
     #[account(mut)]
     pub signer: Signer<'info>,
-    /// Mint for SPL Token stored in treasury.
+
+    /// Mint for SPL Token stored in treasu2ry.
     pub treasury_mint: Account<'info, Mint>,
 
     /// Payer's SPL Token account wallet 
@@ -550,6 +559,7 @@ pub struct UpdateAuction<'info> {
  */
 
 #[derive(Accounts)]
+#[instruction(ts: i64)]
 pub struct UpdateAuction2<'info> {
     #[account(
         mut,
@@ -565,6 +575,15 @@ pub struct UpdateAuction2<'info> {
     )]
     /// CHECK: only used as a signing PDA
     pub bidders_chest: AccountInfo<'info>,
+ 
+    #[account(
+        init_if_needed,
+        payer = bidder,
+        space = 8 + BoyncUserBid::ACCOUNT_SIZE,
+        seeds = [BIDDER_SEED, state.key().as_ref(), bidder.key().as_ref(), ts.to_le_bytes().as_ref()],
+        bump 
+    )]
+    pub bidder_state: Account<'info, BoyncUserBid>,
 
     // Users and accounts in the system
     #[account(mut)]
@@ -685,6 +704,17 @@ pub struct BoyncAuction2 {
     state:          AuctionState, // 1 + 32
     last_bidder:    Pubkey,
     bump:           u8
+}
+
+#[account]
+pub struct BoyncUserBid {
+    auction:        Pubkey,
+    bidder:         Pubkey,
+    ts:             i64, // 1 + 64
+}
+
+impl BoyncUserBid {
+    pub const ACCOUNT_SIZE: usize = size_of::<BoyncUserBid>();
 }
 
 impl BoyncAuction {
