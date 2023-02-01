@@ -264,7 +264,8 @@ pub mod boync_anchor_program {
             auction_pubkey:         auction_state.key(),
             bidder_pubkey:          auction_state.last_bidder.clone(),
             updated_end_timestamp:  auction_state.end_auction_at,
-            label:                  "bid".to_string()
+            label:                  "bid".to_string(),
+            ts:                     ts
         });
 
         Ok(())
@@ -781,6 +782,7 @@ pub struct BoyncBidEvent {
     pub auction_pubkey: Pubkey,
     pub bidder_pubkey: Pubkey,
     pub updated_end_timestamp: i64,
+    pub ts: i64,
     #[index]
     pub label: String,
 }
