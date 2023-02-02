@@ -1,8 +1,7 @@
 use anchor_lang::{
     prelude::*,
     solana_program::clock::Clock,
-    solana_program::system_program,
-    solana_program::native_token::LAMPORTS_PER_SOL,
+    system_program,
     { AnchorDeserialize, AnchorSerialize },
 };
 
@@ -28,7 +27,7 @@ pub mod boync_anchor_program {
 
     use super::*;
 
-    pub fn initialize(ctx: Context<InitializeAuction2>, app_idx: i64, state_bump: u8) -> Result<()> {
+    pub fn initialize(ctx: Context<InitializeAuction2>, app_idx: i64, state_bump: u8, fp: u64) -> Result<()> {
         msg!("[BoyncProgram] Initializing new Boync Auction State");
 
         let clock = Clock::get()?;
@@ -36,6 +35,8 @@ pub mod boync_anchor_program {
 
         auction_state.id = app_idx;             // App index is UnixTimestamp
         auction_state.end_auction_at = app_idx;
+        auction_state.starting_price = (0.05 * fp as f64) as u64;
+        auction_state.next_bid = auction_state.starting_price.clone();
         auction_state.authority = ctx.accounts.signer.key().clone();
         auction_state.treasury_mint = ctx.accounts.treasury_mint.key().clone();
         auction_state.treasury = ctx.accounts.treasury.key().clone();
@@ -81,7 +82,6 @@ pub mod boync_anchor_program {
 
         anchor_spl::token::transfer(cpi_ctx, 1)?;
 
-        auction_state.sol_accrued = 0;
         auction_state.claimed = 0;
         if auction_state.ended(clock.unix_timestamp)? {
             auction_state.state = AuctionState::Ended;
@@ -180,20 +180,62 @@ pub mod boync_anchor_program {
         Ok(())
     }
 
-    pub fn end(ctx: Context<UpdateAuctionState2>) -> Result<()> {
-        let auction = &mut ctx.accounts.auction;
+    pub fn end(ctx: Context<EndAuction>, bidder_chest_bump: u8) -> Result<()> {
+        let auction_state = &mut ctx.accounts.state;
+        let bidders_chest = &mut ctx.accounts.bidders_chest;
+        let treasury = &mut ctx.accounts.treasury;
         let clock = Clock::get()?;
 
         // Can't end an Auction that is already ended.
-        require!(auction.state == AuctionState::Started,
+        require!(auction_state.state == AuctionState::Started,
             AuctionError::InvalidState);
 
-        auction.state = auction.state.end()?;
-        auction.end_auction_at = clock.unix_timestamp * MS_IN_SEC;
+        auction_state.state = auction_state.state.end()?;
+        auction_state.end_auction_at = clock.unix_timestamp * MS_IN_SEC;
+
+        /* Build bidders_chest PDA to sign transaction */
+        // let bump = *ctx.bumps.get("wallet").unwrap();
+        let auction_auth = auction_state.authority.clone();
+        let app_idx_bytes = auction_state.id.to_le_bytes();
+        let seeds = &[
+            WALLET_SEED,
+            auction_auth.as_ref(),
+            app_idx_bytes.as_ref(),
+            &[bidder_chest_bump]
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        let total_lamports: u64 = bidders_chest.lamports();
+
+        /* transfer 75% of bidders_chest to authority account */
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer { 
+                    from:       bidders_chest.to_account_info(),
+                    to:         ctx.accounts.authority.to_account_info()
+                },
+                signer_seeds
+            ),
+            (total_lamports as f64 * 0.75) as u64
+        )?;
+
+        /* transfer rest (25%) of bidders_chest to treasury account */
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer { 
+                    from:       bidders_chest.to_account_info(),
+                    to:         treasury.to_account_info()
+                },
+                signer_seeds
+            ),
+            bidders_chest.lamports().clone()
+        )?;
 
         emit!(BoyncEndEvent {
-            auction_pubkey:         auction.key(),
-            updated_end_timestamp:  auction.end_auction_at,
+            auction_pubkey:         auction_state.key(),
+            updated_end_timestamp:  auction_state.end_auction_at,
             label:                  "end".to_string()
         });
 
@@ -202,7 +244,6 @@ pub mod boync_anchor_program {
 
     pub fn bid(ctx: Context<UpdateAuction2>, ts: i64) -> Result<()> {
 
-        const POINT_ONE_SOL: u64 = LAMPORTS_PER_SOL / 10;
         let auction_state = &mut ctx.accounts.state;
         let clock = Clock::get()?;
 
@@ -248,17 +289,18 @@ pub mod boync_anchor_program {
             signer_seeds
         );
 
-        anchor_lang::system_program::transfer(cpi_ctx, POINT_ONE_SOL)?;
-
-        auction_state.last_bidder = ctx.accounts.bidder.key.clone();
-        auction_state.end_auction_at += 60 * MS_IN_SEC; // Add 60 seconds to countdown
-        auction_state.sol_accrued += POINT_ONE_SOL;
+        anchor_lang::system_program::transfer(cpi_ctx, auction_state.next_bid.clone())?;
 
         /* Store bid state */
         let bidder_state = &mut ctx.accounts.bidder_state;
         bidder_state.auction = auction_state.key();
-        bidder_state.bidder = auction_state.last_bidder.key();
+        bidder_state.bidder = ctx.accounts.bidder.key.clone();
+        bidder_state.bid_value = auction_state.next_bid;
         bidder_state.ts = ts;
+
+        auction_state.last_bidder = ctx.accounts.bidder.key.clone();
+        auction_state.end_auction_at += 60 * MS_IN_SEC; // Add 60 seconds to countdown
+        auction_state.next_bid = (1.05 * auction_state.next_bid as f64) as u64;
 
         emit!(BoyncBidEvent {
             auction_pubkey:         auction_state.key(),
@@ -446,7 +488,7 @@ pub struct InitializeAuction<'info> {
 
 
 #[derive(Accounts)]
-#[instruction(app_idx: i64, state_bump: u8)]
+#[instruction(app_idx: i64, state_bump: u8, fp: u64)]
 pub struct InitializeAuction2<'info> {
     /// State of our auction program (up to you)
     #[account(
@@ -596,6 +638,31 @@ pub struct UpdateAuction2<'info> {
 }
 
 #[derive(Accounts)]
+pub struct EndAuction<'info> {
+    #[account(mut, has_one = authority @ AuctionError::InvalidAuthority)]
+    pub state: Account<'info, BoyncAuction2>,
+
+    #[account(
+        mut,
+        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.id.to_le_bytes().as_ref()],
+        bump
+    )]
+    /// CHECK: only used as a signing PDA
+    pub bidders_chest: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    /// CHECK: Treasury account will be one random account that only receives SOL.
+    pub treasury: AccountInfo<'info>,
+
+    // Application level accounts
+    system_program: Program<'info, System>,
+    rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
 pub struct ClaimRewards<'info> {
     #[account(
         mut,
@@ -700,7 +767,8 @@ pub struct BoyncAuction2 {
     treasury_mint:  Pubkey,
     treasury:       Pubkey,
     bidders_chest:  Pubkey,
-    sol_accrued:    u64,
+    starting_price: u64,
+    next_bid:       u64,
     claimed:        u8,
     state:          AuctionState, // 1 + 32
     last_bidder:    Pubkey,
@@ -711,6 +779,7 @@ pub struct BoyncAuction2 {
 pub struct BoyncUserBid {
     auction:        Pubkey,
     bidder:         Pubkey,
+    bid_value:      u64,
     ts:             i64, // 1 + 64
 }
 
