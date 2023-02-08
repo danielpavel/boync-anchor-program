@@ -20,7 +20,7 @@ pub const AUCTION_SEED: &[u8] = b"auction";
 pub const BIDDER_SEED: &[u8] = b"bidder";
 pub const MS_IN_SEC: i64 = 1000;
 
-declare_id!("Ed1gXfSgsu8Cj8ZeKc8hPKXog4dNuBaYagFZPFrVDsmv");
+declare_id!("5yXJgz4Ws4V1iizmLG8tuZx1tPaLNqrcRHj6w47fZNh6");
 
 #[program]
 pub mod boync_anchor_program {
@@ -177,6 +177,12 @@ pub mod boync_anchor_program {
 
         auction.state = auction.state.start()?;
 
+        emit!(BoyncStartEvent {
+            auction_pubkey: auction.key(),
+            updated_auction_state: auction.state,
+            label:          "start".to_string()
+        });
+
         Ok(())
     }
 
@@ -305,6 +311,7 @@ pub mod boync_anchor_program {
         emit!(BoyncBidEvent {
             auction_pubkey:         auction_state.key(),
             bidder_pubkey:          auction_state.last_bidder.clone(),
+            updated_bid_value:      auction_state.next_bid.clone(),
             updated_end_timestamp:  auction_state.end_auction_at,
             label:                  "bid".to_string(),
             ts:                     ts
@@ -423,6 +430,12 @@ pub mod boync_anchor_program {
         // TODO: *PROPERLY CLOSE TREASURY ACCOUNT*
 
         auction_state.claimed = 1;
+
+        emit!(BoyncClaimEvent {
+            auction_pubkey: auction_state.key(),
+            claimed:        auction_state.claimed,
+            label:          "claim".to_string()
+        });
 
         Ok(())
     }
@@ -850,6 +863,7 @@ impl AuctionState {
 pub struct BoyncBidEvent {
     pub auction_pubkey: Pubkey,
     pub bidder_pubkey: Pubkey,
+    pub updated_bid_value: u64,
     pub updated_end_timestamp: i64,
     pub ts: i64,
     #[index]
@@ -867,6 +881,20 @@ pub struct BoyncEndEvent {
     pub updated_end_timestamp: i64,
     #[index]
     pub label: String,
+}
+#[event]
+pub struct BoyncStartEvent {
+    pub auction_pubkey: Pubkey,
+    pub updated_auction_state: AuctionState,
+    #[index]
+    pub label: String
+}
+#[event]
+pub struct BoyncClaimEvent {
+    pub auction_pubkey: Pubkey,
+    pub claimed: u8,
+    #[index]
+    pub label: String
 }
 
 /**

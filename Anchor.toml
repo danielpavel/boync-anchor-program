@@ -1,13 +1,13 @@
 [features]
 seeds = false
 [programs.localnet]
-boync_anchor_program = "Ed1gXfSgsu8Cj8ZeKc8hPKXog4dNuBaYagFZPFrVDsmv"
+boync_anchor_program = "5yXJgz4Ws4V1iizmLG8tuZx1tPaLNqrcRHj6w47fZNh6"
 
 [programs.devnet]
-boync_anchor_program = "Ed1gXfSgsu8Cj8ZeKc8hPKXog4dNuBaYagFZPFrVDsmv"
+boync_anchor_program = "5yXJgz4Ws4V1iizmLG8tuZx1tPaLNqrcRHj6w47fZNh6"
 
 [programs.mainnet]
-boync_anchor_program = "Ed1gXfSgsu8Cj8ZeKc8hPKXog4dNuBaYagFZPFrVDsmv"
+boync_anchor_program = "5yXJgz4Ws4V1iizmLG8tuZx1tPaLNqrcRHj6w47fZNh6"
 
 [registry]
 url = "https://anchor.projectserum.com"
