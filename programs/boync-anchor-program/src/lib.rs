@@ -269,6 +269,10 @@ pub mod boync_anchor_program {
         require!(auction_state.authority.key() != ctx.accounts.bidder.key(),
             AuctionError::AuctionAuthorityBid);
 
+        // Can't bid on an Auction if you're already Last Bidder
+        require!(auction_state.last_bidder.key() != ctx.accounts.bidder.key(),
+            AuctionError::AuctionAlreadyLastBidder);
+
         // Just transfer SPL Token to bidders_chest
         // let _bump = *ctx.bumps.get("auction").unwrap();
         // let bump = auction_state.bump;
@@ -660,7 +664,7 @@ pub struct EndAuction<'info> {
         seeds = [WALLET_SEED, state.authority.key().as_ref(), state.id.to_le_bytes().as_ref()],
         bump
     )]
-    /// CHECK: only used as a signing PDA
+    // / CHECK: only used as a signing PDA
     pub bidders_chest: AccountInfo<'info>,
 
     #[account(mut)]
@@ -916,6 +920,8 @@ pub enum AuctionError {
     AuctionClaimed,
     #[msg("You can't bid on an auction you created!")]
     AuctionAuthorityBid,
+    #[msg("You can't bid on an auction if you're already the last bidder!")]
+    AuctionAlreadyLastBidder,
     #[msg("You Are not the winner")]
     YouAreNotTheWinner,
     #[msg("You Are not the authority")]
