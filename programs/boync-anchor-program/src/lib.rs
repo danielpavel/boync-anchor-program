@@ -5,6 +5,11 @@ use anchor_lang::{
     { AnchorDeserialize, AnchorSerialize },
 };
 
+pub mod utils;
+pub mod errors;
+
+use crate::errors::*;
+
 use anchor_spl::{
     token:: { TokenAccount, Token, Mint, Transfer },
     associated_token::AssociatedToken
@@ -20,21 +25,24 @@ pub const AUCTION_SEED: &[u8] = b"auction";
 pub const BIDDER_SEED: &[u8] = b"bidder";
 pub const MS_IN_SEC: i64 = 1000;
 
-declare_id!("5yXJgz4Ws4V1iizmLG8tuZx1tPaLNqrcRHj6w47fZNh6");
+
+
+declare_id!("DykznMHLnGMNLhDPPPu8BPCSeFb9sWkdiB1731SqPQCN");
 
 #[program]
 pub mod boync_anchor_program {
 
     use super::*;
 
-    pub fn initialize(ctx: Context<InitializeAuction2>, app_idx: i64, state_bump: u8, fp: u64) -> Result<()> {
+    pub fn initialize(ctx: Context<InitializeAuction2>, app_idx: i64, state_bump: u8, fp: u64, start_at: i64, end_at: i64) -> Result<()> {
         msg!("[BoyncProgram] Initializing new Boync Auction State");
 
-        let clock = Clock::get()?;
+        // let clock = Clock::get()?;
         let auction_state = &mut ctx.accounts.state;
 
         auction_state.id = app_idx;             // App index is UnixTimestamp
-        auction_state.end_auction_at = app_idx;
+        auction_state.start_auction_at = start_at;
+        auction_state.end_auction_at = end_at;
         auction_state.starting_price = (0.05 * fp as f64) as u64;
         auction_state.next_bid = auction_state.starting_price.clone();
         auction_state.authority = ctx.accounts.signer.key().clone();
@@ -83,11 +91,11 @@ pub mod boync_anchor_program {
         anchor_spl::token::transfer(cpi_ctx, 1)?;
 
         auction_state.claimed = 0;
-        if auction_state.ended(clock.unix_timestamp)? {
-            auction_state.state = AuctionState::Ended;
-        } else {
-            auction_state.state = AuctionState::Created;
-        }
+        // if auction_state.ended(clock.unix_timestamp)? {
+        //     auction_state.state = AuctionState::Ended;
+        // } else {
+        //     auction_state.state = AuctionState::Created;
+        // }
 
         msg!("[BoyncDebug] Done!");
 
@@ -168,23 +176,23 @@ pub mod boync_anchor_program {
     */
 
 
-    pub fn start(ctx: Context<UpdateAuctionState2>) -> Result<()> {
-        let auction = &mut ctx.accounts.auction;
+    // pub fn start(ctx: Context<UpdateAuctionState2>) -> Result<()> {
+    //     let auction = &mut ctx.accounts.auction;
 
-        // // Can't start an Auction that has has already yet started.
-        require!(auction.state == AuctionState::Created,
-            AuctionError::InvalidState);
+    //     // // Can't start an Auction that has has already yet started.
+    //     require!(auction.state == AuctionState::Created,
+    //         AuctionError::InvalidState);
 
-        auction.state = auction.state.start()?;
+    //     auction.state = auction.state.start()?;
 
-        emit!(BoyncStartEvent {
-            auction_pubkey: auction.key(),
-            updated_auction_state: auction.state,
-            label:          "start".to_string()
-        });
+    //     emit!(BoyncStartEvent {
+    //         auction_pubkey: auction.key(),
+    //         updated_auction_state: auction.state,
+    //         label:          "start".to_string()
+    //     });
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     pub fn end(ctx: Context<EndAuction>, bidder_chest_bump: u8) -> Result<()> {
         let auction_state = &mut ctx.accounts.state;
@@ -193,10 +201,11 @@ pub mod boync_anchor_program {
         let clock = Clock::get()?;
 
         // Can't end an Auction that is already ended.
-        require!(auction_state.state == AuctionState::Started,
-            AuctionError::InvalidState);
+        // require!(auction_state.state == AuctionState::Started,
+        //     AuctionError::InvalidState);
+        assert_auction_active(&auction_state)?;
 
-        auction_state.state = auction_state.state.end()?;
+        // auction_state.state = auction_state.state.end()?;
         auction_state.end_auction_at = clock.unix_timestamp * MS_IN_SEC;
 
         /* Build bidders_chest PDA to sign transaction */
@@ -251,15 +260,16 @@ pub mod boync_anchor_program {
     pub fn bid(ctx: Context<UpdateAuction2>, ts: i64) -> Result<()> {
 
         let auction_state = &mut ctx.accounts.state;
-        let clock = Clock::get()?;
+        // let clock = Clock::get()?;
 
         // Can't bid on an Auction that is expired.
-        require!(!auction_state.ended(clock.unix_timestamp)?,
-            AuctionError::AuctionExpired);
-    
+        // require!(!auction_state.ended(clock.unix_timestamp)?,
+        //     AuctionError::AuctionExpired);
+        assert_auction_active(&auction_state)?;
+
         // Can't bid on an Auction that is not started.
-        require!(auction_state.state == AuctionState::Started,
-            AuctionError::InvalidState);
+        // require!(auction_state.state == AuctionState::Started,
+        //     AuctionError::InvalidState);
 
         // Can't bid on an Auction that was already claimed.
         require!(auction_state.claimed == 0,
@@ -309,7 +319,8 @@ pub mod boync_anchor_program {
         bidder_state.ts = ts;
 
         auction_state.last_bidder = ctx.accounts.bidder.key.clone();
-        auction_state.end_auction_at += 60 * MS_IN_SEC; // Add 60 seconds to countdown
+        // auction_state.end_auction_at += 60 * MS_IN_SEC; // Add 60 seconds to countdown
+        process_time_extension(auction_state)?;
         auction_state.next_bid = (1.05 * auction_state.next_bid as f64) as u64;
 
         emit!(BoyncBidEvent {
@@ -378,15 +389,20 @@ pub mod boync_anchor_program {
 
     pub fn claim(ctx: Context<ClaimRewards>) -> Result<()> {
         let auction_state = &mut ctx.accounts.state;
-        let clock = Clock::get()?;
+        // let clock = Clock::get()?;
 
         // Can't withdraw on an Auction that is ongoing.
-        require!(auction_state.ended(clock.unix_timestamp)?,
-            AuctionError::AuctionOngoing);
+        // require!(auction_state.ended(clock.unix_timestamp)?,
+        //     AuctionError::AuctionOngoing);
+        assert_auction_over(&auction_state)?;
+
+        // Can't claim on an Auction that was already claimed.
+        require!(auction_state.claimed == 0,
+            AuctionError::AuctionClaimed);
 
         // Can't claim an Auction that is not in ended state.
-        require!(auction_state.state == AuctionState::Ended,
-            AuctionError::InvalidState);
+        // require!(auction_state.state == AuctionState::Ended,
+        //     AuctionError::InvalidState);
 
         // Only Winner can claim rewards.
         // FIX: *MAYBE REDUNDAND because of 
@@ -505,7 +521,7 @@ pub struct InitializeAuction<'info> {
 
 
 #[derive(Accounts)]
-#[instruction(app_idx: i64, state_bump: u8, fp: u64)]
+#[instruction(app_idx: i64, state_bump: u8, fp: u64, start_at: i64, end_at: i64)]
 pub struct InitializeAuction2<'info> {
     /// State of our auction program (up to you)
     #[account(
@@ -628,12 +644,12 @@ pub struct UpdateAuction2<'info> {
     )]
     pub state: Account<'info, BoyncAuction2>,
 
+    /// CHECK: only used as a signing PDA
     #[account(
         mut,
         seeds = [WALLET_SEED, state.authority.key().as_ref(), state.id.to_le_bytes().as_ref()],
         bump
     )]
-    /// CHECK: only used as a signing PDA
     pub bidders_chest: AccountInfo<'info>,
  
     #[account(
@@ -659,12 +675,12 @@ pub struct EndAuction<'info> {
     #[account(mut, has_one = authority @ AuctionError::InvalidAuthority)]
     pub state: Account<'info, BoyncAuction2>,
 
+    /// CHECK: only used as a signing PDA
     #[account(
         mut,
         seeds = [WALLET_SEED, state.authority.key().as_ref(), state.id.to_le_bytes().as_ref()],
         bump
     )]
-    // / CHECK: only used as a signing PDA
     pub bidders_chest: AccountInfo<'info>,
 
     #[account(mut)]
@@ -779,6 +795,7 @@ pub struct BoyncAuction {
 #[account]
 pub struct BoyncAuction2 {
     id:             i64,
+    start_auction_at: i64, // 1 + 64
     end_auction_at: i64, // 1 + 64
     authority:      Pubkey,
     treasury_mint:  Pubkey,
@@ -904,31 +921,65 @@ pub struct BoyncClaimEvent {
 /**
  * Errors
  */
-#[error_code]
-pub enum AuctionError {
-    /// Invalid transition, auction state may only transition: Created -> Started -> Stopped
-    #[msg("Invalid auction state transition.")]
-    AuctionTransitionInvalid,
-    /// Auction is not currently running.
-    #[msg("Auction is not currently running.")]
-    InvalidState,
-    #[msg("Auction expired.")]
-    AuctionExpired,
-    #[msg("Auction ongoing")]
-    AuctionOngoing,
-    #[msg("Auction has already been claimed!")]
-    AuctionClaimed,
-    #[msg("You can't bid on an auction you created!")]
-    AuctionAuthorityBid,
-    #[msg("You can't bid on an auction if you're already the last bidder!")]
-    AuctionAlreadyLastBidder,
-    #[msg("You Are not the winner")]
-    YouAreNotTheWinner,
-    #[msg("You Are not the authority")]
-    YouAreNotTheAuthority,
-    /// Bid is too small.
-    #[msg("Bid is too small.")]
-    BidTooSmall,
-    #[msg("You are not the authority for this auction!")]
-    InvalidAuthority,
+// #[error_code]
+// pub enum AuctionError {
+//     /// Invalid transition, auction state may only transition: Created -> Started -> Stopped
+//     #[msg("Invalid auction state transition.")]
+//     AuctionTransitionInvalid,
+//     /// Auction is not currently running.
+//     #[msg("Auction is not currently running.")]
+//     InvalidState,
+//     #[msg("Auction expired.")]
+//     AuctionExpired,
+//     #[msg("Auction ongoing")]
+//     AuctionOngoing,
+//     #[msg("Auction has already been claimed!")]
+//     AuctionClaimed,
+//     #[msg("You can't bid on an auction you created!")]
+//     AuctionAuthorityBid,
+//     #[msg("You can't bid on an auction if you're already the last bidder!")]
+//     AuctionAlreadyLastBidder,
+//     #[msg("You Are not the winner")]
+//     YouAreNotTheWinner,
+//     #[msg("You Are not the authority")]
+//     YouAreNotTheAuthority,
+//     /// Bid is too small.
+//     #[msg("Bid is too small.")]
+//     #[msg("You are not the authority for this auction!")]
+//     InvalidAuthority,
+// }
+
+pub fn assert_auction_active(listing_config: &Account<BoyncAuction2>) -> Result<()> {
+    let clock = Clock::get()?;
+    let current_timestamp = clock.unix_timestamp * MS_IN_SEC;
+
+    if current_timestamp < listing_config.start_auction_at {
+        return err!(AuctionError::AuctionNotStarted);
+    } else if current_timestamp > listing_config.end_auction_at {
+        return err!(AuctionError::AuctionEnded);
+    }
+
+    Ok(())
+}
+
+pub fn assert_auction_over(listing_config: &Account<BoyncAuction2>) -> Result<()> {
+    let clock = Clock::get()?;
+    let current_timestamp = clock.unix_timestamp * MS_IN_SEC;
+
+    if current_timestamp < listing_config.end_auction_at {
+        return err!(AuctionError::AuctionActive);
+    }
+
+    Ok(())
+}
+
+pub fn process_time_extension(listing_config: &mut Account<BoyncAuction2>) -> Result<()> {
+    let clock = Clock::get()?;
+    let current_timestamp = clock.unix_timestamp * MS_IN_SEC;
+
+    if current_timestamp <= listing_config.end_auction_at {
+        listing_config.end_auction_at += i64::from(60 * MS_IN_SEC);
+    }
+
+    Ok(())
 }

@@ -14,7 +14,8 @@ url = "https://anchor.projectserum.com"
 
 [provider]
 #cluster = "localnet"
-cluster = "devnet"
+#cluster = "devnet"
+cluster = "mainnet"
 #wallet = "/Users/danielpavel/.config/solana/id.json"
 wallet = "/Users/danielpavel/.config/solana/devnet-wallet-1.json"
 
