@@ -1,6 +1,6 @@
 use anchor_lang::{
     prelude::*,
-    solana_program::clock::Clock,
+    solana_program::{clock::Clock, entrypoint::ProgramResult},
     system_program,
     { AnchorDeserialize, AnchorSerialize },
 };
@@ -15,9 +15,9 @@ use anchor_spl::{
     associated_token::AssociatedToken
 };
 
-use {
-    std::mem::size_of
-};
+use crate::utils::build_mpl_metadata_transfer;
+
+use std::mem::size_of;
 
 pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const WALLET_SEED: &[u8] = b"wallet";
@@ -105,6 +105,97 @@ pub mod boync_anchor_program {
         });
 
        Ok(())
+    }
+
+    pub fn initialize_2(ctx: Context<InitializeAuction2>, app_idx: i64, state_bump: u8, fp: u64, start_at: i64, end_at: i64) -> ProgramResult {
+        msg!("[BoyncProgram] Initializing new Boync Auction State");
+
+        // let clock = Clock::get()?;
+        let auction_state = &mut ctx.accounts.state;
+
+        auction_state.id = app_idx;             // App index is UnixTimestamp
+        auction_state.start_auction_at = start_at;
+        auction_state.end_auction_at = end_at;
+        auction_state.starting_price = (0.05 * fp as f64) as u64;
+        auction_state.next_bid = auction_state.starting_price.clone();
+        auction_state.authority = ctx.accounts.signer.key().clone();
+        auction_state.treasury_mint = ctx.accounts.treasury_mint.key().clone();
+        auction_state.treasury = ctx.accounts.treasury.key().clone();
+        auction_state.bidders_chest = ctx.accounts.bidders_chest.key().clone();
+        auction_state.bump = state_bump;
+
+        msg!("Initialized new Boync Auction State for token: {}",
+            auction_state.treasury.key());
+
+        // FIX: [BA-Program-FnWbMVHB]: Fetching bump within anchor context
+        //      does not work.
+        // let _bump = *ctx.bumps.get("auction").unwrap();
+        // let bump = state_bump;
+        let treasury_mint = ctx.accounts.treasury_mint.key().clone();
+        let app_idx_bytes = app_idx.to_le_bytes();
+        let seeds = &[
+            AUCTION_SEED,
+            ctx.accounts.signer.key.as_ref(),
+            treasury_mint.as_ref(),
+            app_idx_bytes.as_ref(),
+            &[auction_state.bump]
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        msg!("[BoyncDebug] Created Seeds");
+
+        let ix = build_mpl_metadata_transfer(
+            ctx.accounts.treasury.key().clone(),    // Token - TODO - this is not the right account
+            ctx.accounts.signer.key().clone(),      // Token Owner
+            ctx.accounts.treasury.key().clone(),    // Destination
+            ctx.accounts.treasury.key().clone(),    // Destination Owner - TODO - can be program ID?
+            ctx.accounts.treasury_mint.key().clone(),   // Mint
+            ctx.accounts.metadata.key().clone(),    // Token Metadata
+            Some(ctx.accounts.edition.key().clone()),     // Edition
+            Some(ctx.accounts.owner_token_record.key().clone()),  // Owner Token Record
+            Some(ctx.accounts.destination_token_record.key().clone()),  // Destination Token Record
+            ctx.accounts.signer.key().clone(),      // Authority
+            ctx.accounts.signer.key().clone(),      // Payer
+            ctx.accounts.system_program.key().clone(),  // System Program
+            ctx.accounts.rent.key().clone(),        // Sysvar Instructions
+            ctx.accounts.token_program.key().clone(),  // System Program
+            ctx.accounts.associated_token_program.key().clone(),  // System Program
+            None,
+            None
+        );
+
+        msg!("[BoyncDebug] Created Transfer");
+
+        let invoke_result = anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[
+                ctx.accounts.treasury.to_account_info(),    // Token - TODO - this is not the right account
+                ctx.accounts.signer.to_account_info(),      // Token Owner
+                ctx.accounts.treasury.to_account_info(),    // Destination
+                ctx.accounts.treasury.to_account_info(),    // Destination Owner - TODO - can be program ID?
+                ctx.accounts.treasury_mint.to_account_info(),   // Mint
+                ctx.accounts.metadata.to_account_info(),    // Token Metadata
+                ctx.accounts.edition.to_account_info(),     // Edition
+                ctx.accounts.owner_token_record.to_account_info(),  // Owner Token Record
+                ctx.accounts.destination_token_record.to_account_info(),  // Destination Token Record
+                ctx.accounts.signer.to_account_info(),      // Authority
+                ctx.accounts.signer.to_account_info(),      // Payer
+                ctx.accounts.system_program.to_account_info(),  // System Program
+                ctx.accounts.rent.to_account_info(),        // Sysvar Instructions
+                ctx.accounts.token_program.to_account_info(),  // System Program
+                ctx.accounts.associated_token_program.to_account_info(),  // System Program
+            ],
+            signer_seeds
+        );
+
+        msg!("[BoyncDebug] Done!");
+
+        emit!(BoyncInitializeEvent {
+            auction_pubkey: auction_state.key(),
+            label:          "initialize".to_string()
+        });
+
+        invoke_result
     }
 
     /* Disabled as part of [BA-Program-5uJBi4jN][MVP] Remove BOYNC token GATE
@@ -560,7 +651,40 @@ pub struct InitializeAuction2<'info> {
     /// Mint for SPL Token stored in treasu2ry.
     pub treasury_mint: Account<'info, Mint>,
 
-    /// Payer's SPL Token account wallet 
+    /// Metadata account
+    #[account(
+        mut,
+        seeds = [mpl_token_metadata::state::PREFIX.as_bytes(), mpl_token_metadata::ID.as_ref(), treasury_mint.key().as_ref()],
+        bump
+    )]
+    /// CHECK: PDA checked by anchor
+    pub metadata: AccountInfo<'info>,
+
+    #[account(
+        mut,
+        seeds = [mpl_token_metadata::state::PREFIX.as_bytes(), mpl_token_metadata::ID.as_ref(), treasury_mint.key().as_ref(), mpl_token_metadata::state::EDITION.as_bytes()],
+        bump
+    )]
+    /// CHECK: PDA checked by anchor
+    pub edition: AccountInfo<'info>,
+
+    #[account(
+        mut,
+        seeds = [mpl_token_metadata::state::PREFIX.as_bytes(), mpl_token_metadata::ID.as_ref(), treasury_mint.key().as_ref(), mpl_token_metadata::state::TOKEN_RECORD_SEED.as_bytes(), signer_withdraw_wallet.key().as_ref()],
+        bump
+    )]
+    /// CHECK: PDA checked by anchor
+    pub owner_token_record: AccountInfo<'info>,
+
+    #[account(
+        mut,
+        seeds = [mpl_token_metadata::state::PREFIX.as_bytes(), mpl_token_metadata::ID.as_ref(), treasury_mint.key().as_ref(), mpl_token_metadata::state::TOKEN_RECORD_SEED.as_bytes(), treasury.key().as_ref()],
+        bump
+    )]
+    /// CHECK: PDA checked by anchor
+    pub destination_token_record: AccountInfo<'info>,
+
+    /// Payer's SPL Token account wallet
     /// (The wallet who will send the NFT being auctioned)
     #[account(
         mut,
@@ -572,6 +696,7 @@ pub struct InitializeAuction2<'info> {
     // Application level accounts
     system_program: Program<'info, System>,
     token_program: Program<'info, Token>,
+    associated_token_program: Program<'info, AssociatedToken>,
     rent: Sysvar<'info, Rent>,
 }
 
