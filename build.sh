@@ -7,11 +7,24 @@ function exists_in_list() {
     echo $LIST | tr "$DELIMITER" '\n' | grep -F -q -x "$VALUE"
 }
 
-input=$1
-
 programs="token-metadata boync-anchor-program"
 
+input=$1
+
 mkdir -p test-programs
+
+if [[ $input == "clean" ]]; then
+    echo "Cleaining..."
+    for program in ${programs}; do
+	echo "Cleaning $program"
+	cd programs/$program/program
+	cargo clean
+	cd ../../..
+    done
+
+    echo "Done"
+    exit 1
+fi
 
 if exists_in_list "$programs" " " $input; then
     echo "building $input"
@@ -25,11 +38,8 @@ then
     for program in ${programs}; do
         echo "building $program"
         cd programs/$program/program
-
-        echo "Building inside: $PWD"
         cargo build-bpf --bpf-out-dir ../../../test-programs/
         cd ../../../
-        echo "Moving out to: $PWD"
     done
 
     # echo "building testing-utils"
