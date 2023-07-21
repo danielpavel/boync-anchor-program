@@ -15,6 +15,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 
+use std::result::Result as StdResult;
 use crate::*;
 
 #[derive(Debug)]
@@ -132,7 +133,7 @@ impl MasterEditionV2 {
         &self,
         context: &mut ProgramTestContext,
         max_supply: Option<u64>,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let tx = Transaction::new_signed_with_payer(
             &[instruction::create_master_edition_v3(
                 id(),

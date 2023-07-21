@@ -1,8 +1,10 @@
 mod digital_asset;
 mod metadata;
 mod master_edition_v2;
+mod setup_functions;
 
 pub use digital_asset::*;
+pub use setup_functions::*;
 pub use metadata::{assert_collection_size, Metadata};
 pub use master_edition_v2::MasterEditionV2;
 pub use mpl_token_metadata::instruction;

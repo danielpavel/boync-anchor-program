@@ -36,3 +36,4 @@ mpl-token-auth-rules = { version = "1.1", features = ["no-entrypoint"] }
 [dev-dependencies]
 solana-sdk = "1.14"
 solana-program-test = "1.14"
+anchor-client = "0.27.0"

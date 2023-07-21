@@ -11,6 +11,7 @@ use solana_sdk::{
     pubkey::Pubkey, signature::Signer, signer::keypair::Keypair, transaction::Transaction,
 };
 
+use std::result::Result as StdResult;
 use crate::*;
 
 #[derive(Debug)]
@@ -308,7 +309,7 @@ impl Metadata {
         collection: Option<Collection>,
         uses: Option<Uses>,
         collection_details: Option<CollectionDetails>,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         create_mint(
             context,
             &self.mint,
@@ -364,7 +365,7 @@ impl Metadata {
     pub async fn create_v3_no_freeze_auth(
         &self,
         context: &mut ProgramTestContext,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let name = String::from("Test");
         let symbol = String::from("TEST");
         let uri = String::from("https://test.com");
@@ -425,7 +426,7 @@ impl Metadata {
     pub async fn create_v3_default(
         &self,
         context: &mut ProgramTestContext,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         self.create_v3(
             context,
             "name".to_string(),
@@ -443,7 +444,7 @@ impl Metadata {
 
     pub async fn create_default_nft(
         context: &mut ProgramTestContext,
-    ) -> Result<(Metadata, MasterEditionV2), BanksClientError> {
+    ) -> StdResult<(Metadata, MasterEditionV2), BanksClientError> {
         let nft = Metadata::new();
         nft.create_v3(
             context,
@@ -468,7 +469,7 @@ impl Metadata {
 
     pub async fn create_default_sized_parent(
         context: &mut ProgramTestContext,
-    ) -> Result<(Metadata, MasterEditionV2), BanksClientError> {
+    ) -> StdResult<(Metadata, MasterEditionV2), BanksClientError> {
         let nft = Metadata::new();
         nft.create_v3(
             context,
@@ -530,7 +531,7 @@ impl Metadata {
     pub async fn update_primary_sale_happened_via_token(
         &self,
         context: &mut ProgramTestContext,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let tx = Transaction::new_signed_with_payer(
             &[instruction::update_primary_sale_happened_via_token(
                 id(),
@@ -592,7 +593,7 @@ impl Metadata {
         is_mutable: bool,
         collection: Option<Collection>,
         uses: Option<Uses>,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let tx = Transaction::new_signed_with_payer(
             &[instruction::update_metadata_accounts_v2(
                 id(),
@@ -627,7 +628,7 @@ impl Metadata {
         collection_mint: Pubkey,
         collection_master_edition_account: Pubkey,
         collection_authority_record: Option<Pubkey>,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let tx = Transaction::new_signed_with_payer(
             &[instruction::verify_collection(
                 id(),
@@ -655,7 +656,7 @@ impl Metadata {
         collection_mint: Pubkey,
         collection_master_edition_account: Pubkey,
         collection_authority_record: Option<Pubkey>,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let tx = Transaction::new_signed_with_payer(
             &[instruction::verify_sized_collection_item(
                 id(),
@@ -684,7 +685,7 @@ impl Metadata {
         collection_mint: Pubkey,
         collection_master_edition_account: Pubkey,
         collection_authority_record: Option<Pubkey>,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let tx = Transaction::new_signed_with_payer(
             &[instruction::set_and_verify_collection(
                 id(),
@@ -713,7 +714,7 @@ impl Metadata {
         collection_mint: Pubkey,
         collection_master_edition_account: Pubkey,
         collection_authority_record: Option<Pubkey>,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let tx = Transaction::new_signed_with_payer(
             &[instruction::set_and_verify_sized_collection_item(
                 id(),
@@ -741,7 +742,7 @@ impl Metadata {
         collection_mint: Pubkey,
         collection_master_edition_account: Pubkey,
         collection_authority_record: Option<Pubkey>,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let tx = Transaction::new_signed_with_payer(
             &[instruction::unverify_collection(
                 id(),
@@ -768,7 +769,7 @@ impl Metadata {
         collection_mint: Pubkey,
         collection_master_edition_account: Pubkey,
         collection_authority_record: Option<Pubkey>,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         let tx = Transaction::new_signed_with_payer(
             &[instruction::unverify_sized_collection_item(
                 id(),
@@ -792,7 +793,7 @@ impl Metadata {
         &self,
         context: &mut ProgramTestContext,
         new_update_authority: Pubkey,
-    ) -> Result<(), BanksClientError> {
+    ) -> StdResult<(), BanksClientError> {
         airdrop(context, &new_update_authority, 1_000_000_000)
             .await
             .unwrap();
