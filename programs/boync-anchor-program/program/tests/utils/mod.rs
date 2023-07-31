@@ -23,6 +23,7 @@ pub const DEFAULT_COLLECTION_DETAILS: Option<CollectionDetails> =
 
 pub fn program_test() -> ProgramTest {
     let mut program = ProgramTest::new("boync_anchor_program", boync_anchor_program::id(), None);
+    program.set_compute_max_units(800_000);
 
     program.add_program("mpl_token_metadata", mpl_token_metadata::id(), None);
 

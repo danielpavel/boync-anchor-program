@@ -1,16 +1,22 @@
-use spl_associated_token_account::get_associated_token_address;
-use solana_program_test::*;
 use super::digital_asset::*;
+use solana_program_test::*;
+use anchor_lang::*;
 
 use anchor_client::solana_sdk::{
     instruction::Instruction,
-    transaction::Transaction,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     system_program, sysvar,
+    transaction::Transaction,
 };
 
-use anchor_lang::*;
+use boync_anchor_program::{
+    accounts::InitializeAuction2 as InitializeAuction2Accounts,
+    instruction::InitializeAuction2 as InitializeAuction2Data,
+};
+use mpl_token_metadata::pda::{
+    find_token_record_account, find_master_edition_account
+};
 
 const ONE_SOL: u64 = 1_000_000_000;
 const ONE_MINUTE_IN_MSEC: i64 = 60 * 60 * 1000;
@@ -24,40 +30,57 @@ pub fn boync_initialize_2(
     treasury: &Pubkey,
     bidders_chest: &Pubkey,
     timestamp: &i64,
-) -> (
-    boync_anchor_program::accounts::InitializeAuction2,
-    Transaction,
-) {
-    // We have to find:
-    // 1. Auction State Account Address ("auction", creator, mint, now_timestamp)
-    // 2. Treasury Account Address  ("treasury", creator, mint, now_timestamp)
-    // 3. Bidders Chest Account Address ("wallet", creator, now_timestamp)
-    let creator_token_account = get_associated_token_address(&creator.pubkey(), &digital_asset.mint.pubkey());
+    creator_ata: &Pubkey,
+    destination_ata: &Pubkey,
+) -> (InitializeAuction2Accounts, Transaction) {
 
-    let accounts = boync_anchor_program::accounts::InitializeAuction2 {
+    // let token = &digital_asset.token.pubkey();
+    let mint = &digital_asset.mint.pubkey();
+
+    let edition = if let Some(edition) = digital_asset.master_edition {
+        edition
+    } else {
+        let (edition, _) = find_master_edition_account(mint);
+        edition
+    };
+
+    let (owner_token_record, _) = find_token_record_account(mint, &creator_ata);
+    // This can be optional for non pNFTs but always include it for now.
+    let (destination_token_record, _bump) = find_token_record_account(mint, &destination_ata);
+
+    // println!("[boync_initialize_2][edition] {:#?}", edition);
+    // println!("[boync_initialize_2][owner_token_record] {:#?}", owner_token_record);
+    // println!("[boync_initialize_2][destination_token_record] {:#?}", destination_token_record);
+
+    let accounts = InitializeAuction2Accounts {
         state: *auction,
         treasury: *treasury,
+        treasury_token: *destination_ata,
         bidders_chest: *bidders_chest,
         signer: creator.pubkey(),
-        treasury_mint: digital_asset.mint.pubkey(),
+        treasury_mint: *mint,
         metadata: digital_asset.metadata,
-        edition: digital_asset.master_edition,
-        owner_token_record: None,
-        destination_token_record: None,
-        signer_withdraw_wallet: creator_token_account,
+        edition,
+        owner_token_record,
+        destination_token_record,
+        auth_rules: mpl_token_auth_rules::id(), // !!!NOT USED
+        signer_withdraw_wallet: *creator_ata,
         system_program: system_program::id(),
         token_program: spl_token::id(),
         associated_token_program: spl_associated_token_account::id(),
+        auth_rules_token_program:  mpl_token_auth_rules::id(),
+        token_metadata_program: mpl_token_metadata::id(),
         rent: sysvar::rent::id(),
+        sysvar_instructions: sysvar::instructions::id(),
     };
     let accounts_meta = accounts.to_account_metas(None);
 
-    let data = boync_anchor_program::instruction::InitializeAuction2 {
-        app_idx: timestamp,
+    let data = InitializeAuction2Data {
+        app_idx: *timestamp,
         state_bump: auction_bump,
         fp: 3 * ONE_SOL,
-        start_at: timestamp,
-        end_at: timestamp + ((30 as i64) * ONE_MINUTE_IN_MSEC),
+        start_at: *timestamp,
+        end_at: *timestamp + ((30 as i64) * ONE_MINUTE_IN_MSEC),
     }
     .data();
 

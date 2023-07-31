@@ -42,4 +42,10 @@ pub enum AuctionError {
 
     #[msg("You are not the authority for this auction!")]
     InvalidAuthority,
+
+    #[msg("PublicKeyMismatch")]
+    PublicKeyMismatch,
+
+    #[msg("NumericalOverflow")]
+    NumericalOverflow,
 }
