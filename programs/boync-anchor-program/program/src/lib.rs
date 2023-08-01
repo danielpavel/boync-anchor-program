@@ -165,6 +165,9 @@ pub mod boync_anchor_program {
         // msg!("[BoyncDebug] with dest_owner: {:#?}", ctx.accounts.treasury.to_account_info().key);
         // msg!("[BoyncDebug] with mint: {:#?}", ctx.accounts.treasury_mint.to_account_info().key);
 
+        let owner_tr = ctx.accounts.owner_token_record.to_account_info();
+        msg!("[BoyncDebug] owner_token_record: {:#?}", owner_tr);
+
         let transfer_accounts = MetadataTransfer {
             token: ctx.accounts.signer_withdraw_wallet.to_account_info(),
             token_owner: ctx.accounts.signer.to_account_info(),

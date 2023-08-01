@@ -14,8 +14,9 @@ use boync_anchor_program::{
     accounts::InitializeAuction2 as InitializeAuction2Accounts,
     instruction::InitializeAuction2 as InitializeAuction2Data,
 };
-use mpl_token_metadata::pda::{
-    find_token_record_account, find_master_edition_account
+use mpl_token_metadata::{
+    pda::{find_token_record_account, find_master_edition_account},
+    state::TokenStandard
 };
 
 const ONE_SOL: u64 = 1_000_000_000;
@@ -32,6 +33,7 @@ pub fn boync_initialize_2(
     timestamp: &i64,
     creator_ata: &Pubkey,
     destination_ata: &Pubkey,
+    _token_standard: TokenStandard
 ) -> (InitializeAuction2Accounts, Transaction) {
 
     // let token = &digital_asset.token.pubkey();
@@ -48,9 +50,7 @@ pub fn boync_initialize_2(
     // This can be optional for non pNFTs but always include it for now.
     let (destination_token_record, _bump) = find_token_record_account(mint, &destination_ata);
 
-    // println!("[boync_initialize_2][edition] {:#?}", edition);
-    // println!("[boync_initialize_2][owner_token_record] {:#?}", owner_token_record);
-    // println!("[boync_initialize_2][destination_token_record] {:#?}", destination_token_record);
+    println!("[BoyncTest][boync_initialize_2] owner_tr: {:#?}", owner_token_record);
 
     let accounts = InitializeAuction2Accounts {
         state: *auction,

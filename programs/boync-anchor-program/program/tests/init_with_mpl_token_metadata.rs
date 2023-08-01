@@ -34,18 +34,13 @@ mod standard_transfer {
 
     pub async fn setup_transfer_token(
         context: &mut ProgramTestContext,
-        amount: u64
+        token_standard: TokenStandard,
+        amount: u64,
     ) -> StdResult<(DigitalAsset, Pubkey, Keypair), BanksClientError> {
         let mut da = DigitalAsset::new();
-        da.create_and_mint(
-            context,
-            TokenStandard::ProgrammableNonFungible,
-            None,
-            None,
-            1,
-        )
-        .await
-        .unwrap();
+        da.create_and_mint(context, token_standard, None, None, 1)
+            .await
+            .unwrap();
 
         let destination_owner = Keypair::new();
         let destination_token =
@@ -81,8 +76,11 @@ mod standard_transfer {
     async fn boync_initialize_auction_2_programmable_non_fungible() {
         let mut context = program_test().start_with_context().await;
 
+        let token_standard = TokenStandard::NonFungible;
         let (da, destination_token, destination_owner) =
-            setup_transfer_token(&mut context, 1).await.unwrap();
+            setup_transfer_token(&mut context, token_standard, 1)
+                .await
+                .unwrap();
 
         let token_account = Account::unpack_from_slice(
             context
@@ -135,6 +133,7 @@ mod standard_transfer {
             &current_timestamp,
             &destination_token,
             &treasury_ata,
+            token_standard
         );
 
         context.banks_client.process_transaction(tx).await.unwrap();

@@ -79,16 +79,6 @@ fn build_mpl_token_metadata_instruction_with_builder(
 
     let transfer_ix = builder.build(args).unwrap().instruction();
 
-    // msg!("[build_mpl_token_metadata_instruction_with_builder] with accounts:");
-    // msg!("[destination_token] {:#?}", destination_token);
-    // msg!("[destination_owner] {:#?}", destination_owner);
-    // msg!("[source_token] {:#?}", token);
-    // msg!("[source_owner] {:#?}", source_owner);
-    // msg!("[edition] {:#?}", master_edition);
-    // msg!("[meta] {:#?}", metadata);
-    // msg!("[owner_token_rec] {:#?}", record);
-    // msg!("[destination_token_rec] {:#?}", destination_token_record);
-
     transfer_ix
 }
 
