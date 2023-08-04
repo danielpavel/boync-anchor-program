@@ -23,7 +23,7 @@ if [[ $input == "clean" ]]; then
     done
 
     echo "Deleting test-programs/*.so files"
-    rm -f "test-programs/*.so"
+    rm "test-programs/*.so"
 
     echo "Done"
     exit 1
