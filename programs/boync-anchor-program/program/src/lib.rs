@@ -16,7 +16,7 @@ use anchor_spl::{
 };
 
 use errors::*;
-use utils::{MetadataTransfer, token_metadata_transfer, TokenMetadataProgram, assert_keys_equal};
+use utils::{BoyncTokenTransfer, token_transfer, TokenMetadataProgram, assert_keys_equal};
 
 use std::mem::size_of;
 
@@ -72,7 +72,7 @@ pub mod boync_anchor_program {
 
         // Token program instruction to send SPL token.
         let transfer_instruction = Transfer {
-            from:       ctx.accounts.signer_withdraw_wallet.to_account_info(),
+            from:       ctx.accounts.signer_ata.to_account_info(),
             to:         ctx.accounts.treasury.to_account_info(),
             authority:  ctx.accounts.signer.to_account_info(),
         };
@@ -123,7 +123,7 @@ pub mod boync_anchor_program {
         auction_state.bidders_chest = ctx.accounts.bidders_chest.key().clone();
         auction_state.bump = state_bump;
 
-        msg!("Initialized new Boync Auction State for treasury: {}",
+        msg!("[BoyncDebug] Initialized with treasury: {}",
             auction_state.treasury.key());
 
         // FIX: [BA-Program-FnWbMVHB]: Fetching bump within anchor context
@@ -131,47 +131,21 @@ pub mod boync_anchor_program {
         // let _bump = *ctx.bumps.get("auction").unwrap();
         // let bump = state_bump;
         let treasury_mint = ctx.accounts.treasury_mint.key().clone();
-        let app_idx_bytes = app_idx.to_le_bytes();
-        let seeds = &[
-            AUCTION_SEED,
-            ctx.accounts.signer.key.as_ref(),
-            treasury_mint.as_ref(),
-            app_idx_bytes.as_ref(),
-            &[auction_state.bump]
-        ];
-        let signer_seeds = &[&seeds[..]];
+        let treasury_ata_canonical = get_associated_token_address(&ctx.accounts.treasury.key(), &treasury_mint);
+        let treasury_ata_ctx = &ctx.accounts.treasury_ata.key();
+        let signer_ata_canonical = get_associated_token_address(&ctx.accounts.signer.key(), &treasury_mint);
+        let signer_ata_ctx = &ctx.accounts.signer_ata.key();
 
-        msg!("[BoyncDebug] Created Seeds");
+        assert_keys_equal(treasury_ata_canonical, *treasury_ata_ctx)?;
+        assert_keys_equal(signer_ata_canonical, *signer_ata_ctx)?;
 
-        let signer = &ctx.accounts.signer.key();
-        let treasury = &ctx.accounts.treasury.key();
-        let treasury_ata = get_associated_token_address(treasury, &treasury_mint);
-        let treasury_ata_ctx = &ctx.accounts.treasury_token.key();
-        let signer_ata = get_associated_token_address(signer, &treasury_mint);
-        let signer_ata_ctx = &ctx.accounts.signer_withdraw_wallet.key();
+        let auction_state_clone = auction_state.to_account_info();
 
-        assert_keys_equal(treasury_ata, *treasury_ata_ctx)?;
-        assert_keys_equal(signer_ata, *signer_ata_ctx)?;
-
-        // TODO: check metadata
-        // TODO: check edition
-        // TODO: check owner_token_record_account
-        // TODO: check destination_token_record_account
-        // TODO: check auth_rules
-        // TODO: check auth_rules_token_program
-
-        // msg!("[BoyncDebug] with dest_tr: {:#?}", ctx.accounts.destination_token_record.to_account_info().key);
-        // msg!("[BoyncDebug] with dest_token: {:#?}", ctx.accounts.treasury_token.to_account_info().key);
-        // msg!("[BoyncDebug] with dest_owner: {:#?}", ctx.accounts.treasury.to_account_info().key);
-        // msg!("[BoyncDebug] with mint: {:#?}", ctx.accounts.treasury_mint.to_account_info().key);
-
-        let owner_tr = ctx.accounts.owner_token_record.to_account_info();
-        msg!("[BoyncDebug] owner_token_record: {:#?}", owner_tr);
-
-        let transfer_accounts = MetadataTransfer {
-            token: ctx.accounts.signer_withdraw_wallet.to_account_info(),
+        let transfer_accounts = BoyncTokenTransfer {
+            auction_state: auction_state_clone.to_account_info(),
+            token: ctx.accounts.signer_ata.to_account_info(),
             token_owner: ctx.accounts.signer.to_account_info(),
-            destination: ctx.accounts.treasury_token.to_account_info(),
+            destination: ctx.accounts.treasury_ata.to_account_info(),
             destination_owner: ctx.accounts.treasury.to_account_info(),
             mint: ctx.accounts.treasury_mint.to_account_info(),
             metadata: ctx.accounts.metadata.to_account_info(),
@@ -184,22 +158,26 @@ pub mod boync_anchor_program {
             sysvar_instructions: ctx.accounts.sysvar_instructions.to_account_info(),
             spl_token_program: ctx.accounts.token_program.to_account_info(),
             spl_ata_program: ctx.accounts.associated_token_program.to_account_info(),
-            authorization_rules: ctx.accounts.auth_rules.to_account_info(),
-            authorization_rules_program:ctx.accounts.auth_rules_token_program.to_account_info(),
+            auth_rules_program:ctx.accounts.auth_rules_token_program.to_account_info(),
+            auth_rules: ctx.accounts.auth_rules.to_account_info(),
         };
 
-        let cpi_ctx = CpiContext::new_with_signer(
+        let cpi_ctx = CpiContext::new(
             ctx.accounts.token_metadata_program.to_account_info(),
             transfer_accounts,
-            signer_seeds
         );
 
-        token_metadata_transfer(cpi_ctx, 1)?;
+        token_transfer(cpi_ctx, 1)?;
+
+        msg!("[BoyncDebug] Token transfered to treasury: {}",
+            auction_state.treasury.key());
 
         emit!(BoyncInitializeEvent {
             auction_pubkey: auction_state.key(),
             label:          "initialize".to_string()
         });
+
+        msg!("[BoyncDebug] Initialize event sent: {}");
 
         Ok(())
     }
@@ -242,7 +220,7 @@ pub mod boync_anchor_program {
 
         // Token program instruction to send SPL token.
         let transfer_instruction = Transfer {
-            from:       ctx.accounts.signer_withdraw_wallet.to_account_info(),
+            from:       ctx.accounts.signer_ata.to_account_info(),
             to:         ctx.accounts.treasury.to_account_info(),
             authority:  ctx.accounts.signer.to_account_info(),
         };
@@ -463,7 +441,7 @@ pub mod boync_anchor_program {
 
         // Token program instruction to send SPL token.
         let transfer_instruction = Transfer {
-            from:       ctx.accounts.bidder_withdraw_wallet.to_account_info(),
+            from:       ctx.accounts.signer_ata.to_account_info(),
             to:         ctx.accounts.bidders_chest.to_account_info(),
             authority:  ctx.accounts.bidder.to_account_info(),
         };
@@ -605,10 +583,10 @@ pub struct InitializeAuction<'info> {
     /// (The wallet who will send the token(s) being auctioned)
     #[account(
         mut,
-        constraint=signer_withdraw_wallet.owner == signer.key(),
-        constraint=signer_withdraw_wallet.mint == treasury_mint.key()
+        constraint=signer_ata.owner == signer.key(),
+        constraint=signer_ata.mint == treasury_mint.key()
     )]
-    signer_withdraw_wallet: Account<'info, TokenAccount>,
+    signer_ata: Account<'info, TokenAccount>,
 
     // Application level accounts
     system_program: Program<'info, System>,
@@ -638,13 +616,13 @@ pub struct InitializeAuction2<'info> {
         token::mint=treasury_mint,
         token::authority=state
     )]
-    /// Account holding token being auctioned.
+    /// Token Account holding token being auctioned.
     pub treasury: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: Validated in `initialize_auction_2`
     /// Treasury's Associate Token Account
     #[account(mut)]
-    pub treasury_token: UncheckedAccount<'info>,
+    pub treasury_ata: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -660,7 +638,7 @@ pub struct InitializeAuction2<'info> {
     pub signer: Signer<'info>,
 
     /// Mint for SPL Token stored in treasu2ry.
-    pub treasury_mint: Account<'info, Mint>,
+    pub treasury_mint: Box<Account<'info, Mint>>,
 
     /// CHECK: Metadata Account
     /// verified in `initialize_auction_2`
@@ -688,10 +666,10 @@ pub struct InitializeAuction2<'info> {
     /// (The wallet who will send the NFT being auctioned)
     #[account(
         mut,
-        constraint=signer_withdraw_wallet.owner == signer.key(),
-        constraint=signer_withdraw_wallet.mint == treasury_mint.key()
+        constraint=signer_ata.owner == signer.key(),
+        constraint=signer_ata.mint == treasury_mint.key()
     )]
-    signer_withdraw_wallet: Account<'info, TokenAccount>,
+    signer_ata: Box<Account<'info, TokenAccount>>,
 
     // Application level accounts
     system_program: Program<'info, System>,

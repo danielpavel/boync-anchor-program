@@ -32,8 +32,7 @@ pub fn boync_initialize_2(
     bidders_chest: &Pubkey,
     timestamp: &i64,
     creator_ata: &Pubkey,
-    destination_ata: &Pubkey,
-    _token_standard: TokenStandard
+    treasury_ata: &Pubkey,
 ) -> (InitializeAuction2Accounts, Transaction) {
 
     // let token = &digital_asset.token.pubkey();
@@ -48,14 +47,22 @@ pub fn boync_initialize_2(
 
     let (owner_token_record, _) = find_token_record_account(mint, &creator_ata);
     // This can be optional for non pNFTs but always include it for now.
-    let (destination_token_record, _bump) = find_token_record_account(mint, &destination_ata);
+    let (destination_token_record, _bump) = find_token_record_account(mint, &treasury_ata);
 
-    println!("[BoyncTest][boync_initialize_2] owner_tr: {:#?}", owner_token_record);
+    println!("[BoyncTest][boync_initialize_2] auction_state: {:#?} treasury: {:#?} treasury_ata: {:#?} owner_tr: {:#?}, dest_tr {:#?}, creator {:#?} creator_ata {:#?} ",
+        *auction,
+        *treasury,
+        treasury_ata,
+        owner_token_record,
+        destination_token_record,
+        creator.pubkey(),
+        creator_ata,
+    );
 
     let accounts = InitializeAuction2Accounts {
         state: *auction,
         treasury: *treasury,
-        treasury_token: *destination_ata,
+        treasury_ata: *treasury_ata,
         bidders_chest: *bidders_chest,
         signer: creator.pubkey(),
         treasury_mint: *mint,
@@ -64,7 +71,7 @@ pub fn boync_initialize_2(
         owner_token_record,
         destination_token_record,
         auth_rules: mpl_token_auth_rules::id(), // !!!NOT USED
-        signer_withdraw_wallet: *creator_ata,
+        signer_ata: *creator_ata,
         system_program: system_program::id(),
         token_program: spl_token::id(),
         associated_token_program: spl_associated_token_account::id(),

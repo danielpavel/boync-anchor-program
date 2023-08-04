@@ -1,7 +1,11 @@
 use anchor_lang::{
     context::CpiContext,
     prelude::*,
-    solana_program::{instruction::{AccountMeta, Instruction}, program_memory::sol_memcmp, pubkey::PUBKEY_BYTES},
+    solana_program::{
+        instruction::{AccountMeta, Instruction},
+        program_memory::sol_memcmp,
+        pubkey::PUBKEY_BYTES,
+    },
     Accounts,
 };
 
@@ -9,79 +13,87 @@ use mpl_token_metadata::{
     instruction::{
         builders::TransferBuilder, InstructionBuilder, MetadataInstruction, TransferArgs,
     },
-    pda::{find_master_edition_account, find_token_record_account},
+    state::{Metadata, ProgrammableConfig, TokenMetadataAccount, TokenStandard},
+    utils::assert_derivation
 };
 
-use spl_associated_token_account::get_associated_token_address;
+use anchor_spl::token::Transfer;
 
 use crate::errors::*;
 
-fn build_mpl_token_metadata_instruction_with_builder(
-    authority: &Pubkey,
-    source_owner: &Pubkey,
-    token: &Pubkey,
-    destination_owner: &Pubkey,
-    destination_token: Option<Pubkey>,
-    metadata: &Pubkey,
-    payer: &Pubkey,
-    authorization_rules: Option<Pubkey>,
-    mint: &Pubkey,
-    token_record: Option<Pubkey>,
-    master_edition: Option<Pubkey>,
+fn build_mpl_token_metadata_instruction_with_builder<'info>(
+    ctx: CpiContext<'_, '_, '_, 'info, BoyncTokenTransfer<'info>>,
     amount: u64,
-) -> Instruction {
+) -> Result<(Instruction, Vec<AccountInfo<'info>>)> {
     let args = TransferArgs::V1 {
         authorization_data: None,
         amount: amount,
     };
 
-    let destination_token = if let Some(destination_token) = destination_token {
-        destination_token
-    } else {
-        get_associated_token_address(destination_owner, &mint)
-    };
-
     let mut builder = TransferBuilder::new();
     builder
-        .authority(*authority)
-        .token_owner(*source_owner)
-        .token(*token) // Token account
-        .destination_owner(*destination_owner) // Destination token account owner
-        .destination(destination_token) // Destination token account
-        .metadata(*metadata) // Metadata (pda of ['metadata', program id, mint id]
-        .payer(*payer) // Payer
-        .mint(*mint); // Mint of token asset
+        .token(ctx.accounts.token.key()) // Token account
+        .token_owner(ctx.accounts.token_owner.key()) // Token account owner
+        .destination(ctx.accounts.destination.key()) // Destination token account
+        .destination_owner(ctx.accounts.destination_owner.key()) // Destination token account owner
+        .mint(ctx.accounts.mint.key()) // Mint of token asset
+        .metadata(ctx.accounts.metadata.key()) // Metadata (pda of ['metadata', program id, mint id]
+        .authority(ctx.accounts.authority.key())
+        .payer(ctx.accounts.authority.key()); // Payer
 
-    let record = if let Some(token_record) = token_record {
-        token_record
-    } else {
-        let (record, _) = find_token_record_account(&mint, &token);
-        record
-    };
-    builder.owner_token_record(record);
+    let mut transfer_infos = vec![
+        ctx.accounts.token.to_account_info(),
+        ctx.accounts.authority.to_account_info(),
+        ctx.accounts.payer.to_account_info(),
+        ctx.accounts.destination.to_account_info(),
+        ctx.accounts.destination_owner.to_account_info(),
+        ctx.accounts.mint.to_account_info(),
+        ctx.accounts.metadata.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+        ctx.accounts.sysvar_instructions.to_account_info(),
+        ctx.accounts.spl_token_program.to_account_info(),
+        ctx.accounts.spl_ata_program.to_account_info(),
+    ];
 
-    // This can be optional for non pNFTs but always include it for now.
-    let (destination_token_record, _bump) = find_token_record_account(&mint, &destination_token);
-    builder.destination_token_record(destination_token_record);
+    let metadata = Metadata::from_account_info(&ctx.accounts.metadata)?;
 
-    let master = if let Some(master_edition) = master_edition {
-        master_edition
-    } else {
-        let (master, _) = find_master_edition_account(&mint);
-        master
-    };
-    builder.edition(master);
+    if matches!(
+        metadata.token_standard,
+        Some(TokenStandard::ProgrammableNonFungible)
+    ) {
+        let master_edition = ctx.accounts.edition.to_account_info();
+        let owner_token_record = ctx.accounts.owner_token_record.to_account_info();
+        let destination_token_record = ctx.accounts.destination_token_record.to_account_info();
 
-    if let Some(authorization_rules) = authorization_rules {
-        builder.authorization_rules(authorization_rules);
-        builder.authorization_rules_program(mpl_token_auth_rules::ID);
+        builder
+            .edition(master_edition.key())
+            .owner_token_record(owner_token_record.key())
+            .destination_token_record(destination_token_record.key());
+
+        transfer_infos.push(master_edition);
+        transfer_infos.push(owner_token_record);
+        transfer_infos.push(destination_token_record);
+
+        if let Some(ProgrammableConfig::V1 { rule_set: Some(_) }) = metadata.programmable_config {
+            let auth_rules_program = ctx.accounts.auth_rules_program.clone();
+            let auth_rules = ctx.accounts.auth_rules.clone();
+
+            builder
+                .authorization_rules_program(auth_rules_program.key())
+                .authorization_rules(auth_rules.key());
+            transfer_infos.push(auth_rules_program);
+            transfer_infos.push(auth_rules);
+        }
     }
 
     let transfer_ix = builder.build(args).unwrap().instruction();
 
-    transfer_ix
+    Ok((transfer_ix, transfer_infos))
 }
 
+/* Another way of building the token metadata transfer instruction.
+   Leave it be, for now...
+ */
 pub fn _build_mpl_token_metadata_transfer<'info>(
     token: Pubkey,
     token_owner: Pubkey,
@@ -153,53 +165,78 @@ pub fn _build_mpl_token_metadata_transfer<'info>(
     }
 }
 
-pub fn token_metadata_transfer<'info>(
-    ctx: CpiContext<'_, '_, '_, 'info, MetadataTransfer<'info>>,
+pub fn token_transfer<'info>(
+    ctx: CpiContext<'_, '_, '_, 'info, BoyncTokenTransfer<'info>>,
     amount: u64,
 ) -> Result<()> {
-    let ix = build_mpl_token_metadata_instruction_with_builder(
-        ctx.accounts.authority.key,
-        ctx.accounts.authority.key,
-        ctx.accounts.token.key,
-        ctx.accounts.destination_owner.key,
-        Some(*ctx.accounts.destination.key),
-        ctx.accounts.metadata.key,
-        ctx.accounts.payer.key,
-        None,
-        ctx.accounts.mint.key,
-        None,
-        Some(*ctx.accounts.edition.key),
-        amount
-    );
+    /*
+     *   Both spl_transfer and mpl_token_metadata::Transfer need a valid destination_associate_token_account, so
+     *   create it if its data is empty.
+     */
+    if ctx.accounts.destination.data_is_empty() {
+        // if the token account is empty, we will initialize a new one but it must
+        // be a ATA account
+        assert_derivation(
+            &spl_associated_token_account::id(),
+            &ctx.accounts.destination,
+            &[
+                ctx.accounts.destination_owner.key.as_ref(),
+                spl_token::id().as_ref(),
+                ctx.accounts.mint.key.as_ref(),
+            ],
+        )?;
 
-    solana_program::program::invoke_signed(
-        &ix,
-        &[
-            ctx.accounts.token.clone(), // Token account
-            ctx.accounts.token_owner.clone(), // Token account Owner
-            ctx.accounts.destination.clone(), // Destination token account
-            ctx.accounts.destination_owner.clone(), // Destination token account owner
-            ctx.accounts.mint.clone(),  // Mint
-            ctx.accounts.metadata.clone(), // Token Metadata
-            ctx.accounts.edition.clone(), // Edition
-            ctx.accounts.owner_token_record.clone(), // Owner token record
-            ctx.accounts.destination_token_record.clone(), // Destination token record
-            ctx.accounts.authority.clone(), // Authority
-            ctx.accounts.payer.clone(), // Payer
-            ctx.accounts.system_program.clone(), // System Program
-            ctx.accounts.sysvar_instructions.clone(), // Sysvar Instructions
-            ctx.accounts.spl_token_program.clone(), // SPL Token Program
-            ctx.accounts.spl_ata_program.clone(), // System Program
-            ctx.accounts.authorization_rules.clone(), // Authorization rules
-            ctx.accounts.authorization_rules_program.clone(), // Authorization rules program
-        ],
-        ctx.signer_seeds,
-    )
-    .map_err(Into::into)
+        // creating the associated token account
+        solana_program::program::invoke(
+            &spl_associated_token_account::instruction::create_associated_token_account(
+                ctx.accounts.payer.key,
+                ctx.accounts.destination_owner.key,
+                ctx.accounts.mint.key,
+                &spl_token::id(),
+            ),
+            &[
+                ctx.accounts.payer.clone(),
+                ctx.accounts.destination_owner.clone(),
+                ctx.accounts.mint.clone(),
+                ctx.accounts.destination.clone(),
+            ],
+        )?;
+    }
+
+    let metadata = Metadata::from_account_info(&ctx.accounts.metadata)?;
+
+    match metadata.token_standard {
+        Some(TokenStandard::ProgrammableNonFungible) => {
+            let (ix, accounts) =
+                build_mpl_token_metadata_instruction_with_builder(ctx, amount).unwrap();
+
+            solana_program::program::invoke(&ix, &accounts)?;
+        }
+        _ => {
+            let transfer_instruction = Transfer {
+                from: ctx.accounts.token.to_account_info(),
+                to: ctx.accounts.destination.to_account_info(),
+                authority: ctx.accounts.authority.to_account_info(),
+            };
+
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.spl_token_program.to_account_info(),
+                transfer_instruction,
+                ctx.signer_seeds,
+            );
+
+            anchor_spl::token::transfer(cpi_ctx, 1)?
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Accounts)]
-pub struct MetadataTransfer<'info> {
+#[derive(Debug)]
+pub struct BoyncTokenTransfer<'info> {
+    pub auction_state: AccountInfo<'info>, // Auction state account
+
     pub token: AccountInfo<'info>,             // Token account
     pub token_owner: AccountInfo<'info>,       // Token account owner
     pub destination: AccountInfo<'info>,       // Destination token account
@@ -220,8 +257,8 @@ pub struct MetadataTransfer<'info> {
     pub spl_token_program: AccountInfo<'info>, // SPL Token Program
     pub spl_ata_program: AccountInfo<'info>, // SPL Associated Token Account Program
 
-    pub authorization_rules_program: AccountInfo<'info>, //Token Authorization Rules Program
-    pub authorization_rules: AccountInfo<'info>,         //  Token Authorization Rules account
+    pub auth_rules_program: AccountInfo<'info>, // Token Authorization Rules Program
+    pub auth_rules: AccountInfo<'info>,         // Token Authorization Rules account
 }
 
 /* TODO: Could not find the trait anchor_lang::Id implementation for Authorization Rules Program, and Token Metadata */
