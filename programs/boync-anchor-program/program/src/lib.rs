@@ -177,7 +177,7 @@ pub mod boync_anchor_program {
             label:          "initialize".to_string()
         });
 
-        msg!("[BoyncDebug] Initialize event sent: {}");
+        msg!("[BoyncDebug] Initialize event sent");
 
         Ok(())
     }
@@ -332,7 +332,7 @@ pub mod boync_anchor_program {
         Ok(())
     }
 
-    pub fn bid(ctx: Context<UpdateAuction2>, ts: i64) -> Result<()> {
+    pub fn update_auction_2(ctx: Context<UpdateAuction2>, ts: i64) -> Result<()> {
 
         let auction_state = &mut ctx.accounts.state;
         // let clock = Clock::get()?;
@@ -918,10 +918,10 @@ pub struct BoyncAuction2 {
 
 #[account]
 pub struct BoyncUserBid {
-    auction:        Pubkey,
-    bidder:         Pubkey,
-    bid_value:      u64,
-    ts:             i64, // 1 + 64
+    pub auction:        Pubkey,
+    pub bidder:         Pubkey,
+    pub bid_value:      u64,
+    pub ts:             i64, // 1 + 64
 }
 
 impl BoyncUserBid {
@@ -1024,37 +1024,6 @@ pub struct BoyncClaimEvent {
     #[index]
     pub label: String
 }
-
-/**
- * Errors
- */
-// #[error_code]
-// pub enum AuctionError {
-//     /// Invalid transition, auction state may only transition: Created -> Started -> Stopped
-//     #[msg("Invalid auction state transition.")]
-//     AuctionTransitionInvalid,
-//     /// Auction is not currently running.
-//     #[msg("Auction is not currently running.")]
-//     InvalidState,
-//     #[msg("Auction expired.")]
-//     AuctionExpired,
-//     #[msg("Auction ongoing")]
-//     AuctionOngoing,
-//     #[msg("Auction has already been claimed!")]
-//     AuctionClaimed,
-//     #[msg("You can't bid on an auction you created!")]
-//     AuctionAuthorityBid,
-//     #[msg("You can't bid on an auction if you're already the last bidder!")]
-//     AuctionAlreadyLastBidder,
-//     #[msg("You Are not the winner")]
-//     YouAreNotTheWinner,
-//     #[msg("You Are not the authority")]
-//     YouAreNotTheAuthority,
-//     /// Bid is too small.
-//     #[msg("Bid is too small.")]
-//     #[msg("You are not the authority for this auction!")]
-//     InvalidAuthority,
-// }
 
 pub fn assert_auction_active(listing_config: &Account<BoyncAuction2>) -> Result<()> {
     let clock = Clock::get()?;
