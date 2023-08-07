@@ -1,6 +1,6 @@
 use super::digital_asset::*;
-use solana_program_test::*;
 use anchor_lang::*;
+use solana_program_test::*;
 
 use anchor_client::solana_sdk::{
     instruction::Instruction,
@@ -11,16 +11,88 @@ use anchor_client::solana_sdk::{
 };
 
 use boync_anchor_program::{
-    accounts::InitializeAuction2 as InitializeAuction2Accounts,
-    instruction::InitializeAuction2 as InitializeAuction2Data,
+    accounts::{
+        InitializeAuction2 as InitializeAuction2Accounts, UpdateAuction2 as UpdateAuction2Accounts,
+    },
+    instruction::{
+        InitializeAuction2 as InitializeAuction2Data, UpdateAuction2 as UpdateAuction2Data,
+    },
+    pda::{
+        find_boync_auction_address, find_boync_bidder_state_address,
+        find_boync_bidders_chest_address, find_boync_treasury_address,
+    },
+    BoyncAuction2, BoyncUserBid,
 };
-use mpl_token_metadata::{
-    pda::{find_token_record_account, find_master_edition_account},
-    state::TokenStandard
-};
+use mpl_token_metadata::pda::{find_master_edition_account, find_token_record_account};
+
 
 const ONE_SOL: u64 = 1_000_000_000;
 const ONE_MINUTE_IN_MSEC: i64 = 60 * 60 * 1000;
+
+pub async fn boync_get_auction_data(
+    context: &mut ProgramTestContext,
+    auction: &Pubkey,
+) -> BoyncAuction2 {
+    let auction_house_acc = context
+        .banks_client
+        .get_account(*auction)
+        .await
+        .expect("account not found")
+        .expect("account empty");
+
+    BoyncAuction2::try_deserialize(&mut auction_house_acc.data.as_ref()).unwrap()
+}
+
+pub async fn boync_get_bidder_state_data(
+    context: &mut ProgramTestContext,
+    bidder: &Pubkey,
+) -> BoyncUserBid {
+    let bidder_acc = context
+        .banks_client
+        .get_account(*bidder)
+        .await
+        .expect("account not found")
+        .expect("account empty");
+
+    BoyncUserBid::try_deserialize(&mut bidder_acc.data.as_ref()).unwrap()
+}
+
+pub fn boync_update_auction_bid(
+    context: &mut ProgramTestContext,
+    auction: &Pubkey,
+    bidders_chest: &Pubkey,
+    bidder: &Keypair,
+    ts: &i64,
+) -> (UpdateAuction2Accounts, Transaction) {
+    let (bidder_state, _) = find_boync_bidder_state_address(auction, &bidder.pubkey(), ts);
+    let accounts = UpdateAuction2Accounts {
+        state: *auction,
+        bidders_chest: *bidders_chest,
+        bidder_state,
+        bidder: bidder.pubkey(),
+        system_program: system_program::id(),
+        rent: sysvar::rent::id(),
+    };
+    let accounts_meta = accounts.to_account_metas(None);
+
+    let data = UpdateAuction2Data { ts: *ts }.data();
+
+    let instruction = Instruction {
+        program_id: boync_anchor_program::id(),
+        data,
+        accounts: accounts_meta,
+    };
+
+    (
+        accounts,
+        Transaction::new_signed_with_payer(
+            &[instruction],
+            Some(&bidder.pubkey()),
+            &[bidder],
+            context.last_blockhash,
+        ),
+    )
+}
 
 pub fn boync_initialize_2(
     context: &mut ProgramTestContext,
@@ -34,7 +106,6 @@ pub fn boync_initialize_2(
     creator_ata: &Pubkey,
     treasury_ata: &Pubkey,
 ) -> (InitializeAuction2Accounts, Transaction) {
-
     // let token = &digital_asset.token.pubkey();
     let mint = &digital_asset.mint.pubkey();
 
@@ -75,7 +146,7 @@ pub fn boync_initialize_2(
         system_program: system_program::id(),
         token_program: spl_token::id(),
         associated_token_program: spl_associated_token_account::id(),
-        auth_rules_token_program:  mpl_token_auth_rules::id(),
+        auth_rules_token_program: mpl_token_auth_rules::id(),
         token_metadata_program: mpl_token_metadata::id(),
         rent: sysvar::rent::id(),
         sysvar_instructions: sysvar::instructions::id(),
@@ -87,7 +158,7 @@ pub fn boync_initialize_2(
         state_bump: auction_bump,
         fp: 3 * ONE_SOL,
         start_at: *timestamp,
-        end_at: *timestamp + ((30 as i64) * ONE_MINUTE_IN_MSEC),
+        end_at: *(timestamp) + ((30 as i64) * (ONE_MINUTE_IN_MSEC as i64)),
     }
     .data();
 
@@ -106,4 +177,16 @@ pub fn boync_initialize_2(
             context.last_blockhash,
         ),
     )
+}
+
+pub fn find_boync_auction_pdas(
+    authority: &Pubkey,
+    mint: &Pubkey,
+    current_timestamp: &i64,
+) -> ((Pubkey, u8), Pubkey, Pubkey) {
+    let (auction, auction_bump) = find_boync_auction_address(authority, mint, current_timestamp);
+    let (treasury, _) = find_boync_treasury_address(authority, mint, current_timestamp);
+    let (bidders_chest, _) = find_boync_bidders_chest_address(authority, current_timestamp);
+
+    ((auction, auction_bump), treasury, bidders_chest)
 }
