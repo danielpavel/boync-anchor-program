@@ -677,8 +677,9 @@ pub struct InitializeAuction2<'info> {
     system_program: Program<'info, System>,
     token_program: Program<'info, Token>,
     associated_token_program: Program<'info, AssociatedToken>,
-    /// CHECK: PDA checked by anchor
+    #[account(address = mpl_token_auth_rules::id())]
     auth_rules_token_program: UncheckedAccount<'info>,
+    #[account(address = mpl_token_metadata::id())]
     token_metadata_program: Program<'info, TokenMetadataProgram>,
     rent: Sysvar<'info, Rent>,
     #[account(address = sysvar::instructions::id())]
@@ -870,7 +871,9 @@ pub struct ClaimRewards<'info> {
     system_program: Program<'info, System>,
     token_program: Program<'info, Token>,
     associated_token_program: Program<'info, AssociatedToken>,
+    #[account(address = mpl_token_auth_rules::id())]
     auth_rules_token_program: UncheckedAccount<'info>,
+    #[account(address = mpl_token_metadata::id())]
     token_metadata_program: Program<'info, TokenMetadataProgram>,
     rent: Sysvar<'info, Rent>,
 
