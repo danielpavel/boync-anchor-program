@@ -13,21 +13,48 @@ use mpl_token_metadata::{
     instruction::{
         builders::TransferBuilder, InstructionBuilder, MetadataInstruction, TransferArgs,
     },
+    processor::AuthorizationData,
     state::{Metadata, ProgrammableConfig, TokenMetadataAccount, TokenStandard},
-    utils::assert_derivation
+    utils::assert_derivation,
 };
+
+use mpl_token_auth_rules::payload::{Payload, PayloadType, SeedsVec};
 
 use anchor_spl::token::Transfer;
 
+use crate::constants::*;
 use crate::errors::*;
 
 fn build_mpl_token_metadata_instruction_with_builder<'info>(
     ctx: CpiContext<'_, '_, '_, 'info, BoyncTokenTransfer<'info>>,
+    app_index: &i64,
     amount: u64,
 ) -> Result<(Instruction, Vec<AccountInfo<'info>>)> {
+    let authority = ctx.accounts.authority.to_account_info();
+    let mint = ctx.accounts.mint.to_account_info();
+
     let args = TransferArgs::V1 {
-        authorization_data: None,
-        amount: amount,
+        authorization_data: Some(AuthorizationData {
+            payload: Payload::from([
+                ("Amount".to_string(), PayloadType::Number(amount)),
+                (
+                    "Authority".to_string(),
+                    PayloadType::Pubkey(authority.key()),
+                ),
+                (
+                    "AuthoritySeeds".to_string(),
+                    PayloadType::Seeds(SeedsVec {
+                        seeds: vec![
+                            AUCTION_PREFIX.as_bytes().to_vec(),
+                            authority.key.to_bytes().to_vec(),
+                            mint.key.to_bytes().to_vec(),
+                            app_index.to_be_bytes().to_vec(),
+                        ],
+                    }),
+                ),
+            ]),
+        }),
+        amount,
     };
 
     let mut builder = TransferBuilder::new();
@@ -39,12 +66,11 @@ fn build_mpl_token_metadata_instruction_with_builder<'info>(
         .mint(ctx.accounts.mint.key()) // Mint of token asset
         .metadata(ctx.accounts.metadata.key()) // Metadata (pda of ['metadata', program id, mint id]
         .authority(ctx.accounts.authority.key())
-        .payer(ctx.accounts.authority.key()); // Payer
+        .payer(ctx.accounts.payer.key()); // Payer
 
     let mut transfer_infos = vec![
         ctx.accounts.token.to_account_info(),
         ctx.accounts.authority.to_account_info(),
-        ctx.accounts.payer.to_account_info(),
         ctx.accounts.destination.to_account_info(),
         ctx.accounts.destination_owner.to_account_info(),
         ctx.accounts.mint.to_account_info(),
@@ -92,8 +118,8 @@ fn build_mpl_token_metadata_instruction_with_builder<'info>(
 }
 
 /* Another way of building the token metadata transfer instruction.
-   Leave it be, for now...
- */
+  Leave it be, for now...
+*/
 pub fn _build_mpl_token_metadata_transfer<'info>(
     token: Pubkey,
     token_owner: Pubkey,
@@ -167,11 +193,14 @@ pub fn _build_mpl_token_metadata_transfer<'info>(
 
 pub fn token_transfer<'info>(
     ctx: CpiContext<'_, '_, '_, 'info, BoyncTokenTransfer<'info>>,
+    app_index: &i64,
     amount: u64,
 ) -> Result<()> {
     /*
      *   Both spl_transfer and mpl_token_metadata::Transfer need a valid destination_associate_token_account, so
      *   create it if its data is empty.
+     *
+     *  [TODO] Possibly reduntant because of anchor constraints - review.
      */
     if ctx.accounts.destination.data_is_empty() {
         // if the token account is empty, we will initialize a new one but it must
@@ -203,14 +232,15 @@ pub fn token_transfer<'info>(
         )?;
     }
 
+    let signer_seeds = &ctx.signer_seeds.clone();
     let metadata = Metadata::from_account_info(&ctx.accounts.metadata)?;
 
     match metadata.token_standard {
         Some(TokenStandard::ProgrammableNonFungible) => {
             let (ix, accounts) =
-                build_mpl_token_metadata_instruction_with_builder(ctx, amount).unwrap();
+                build_mpl_token_metadata_instruction_with_builder(ctx, app_index, amount).unwrap();
 
-            solana_program::program::invoke(&ix, &accounts)?;
+            solana_program::program::invoke_signed(&ix, &accounts, &signer_seeds)?;
         }
         _ => {
             let transfer_instruction = Transfer {
@@ -222,7 +252,7 @@ pub fn token_transfer<'info>(
             let cpi_ctx = CpiContext::new_with_signer(
                 ctx.accounts.spl_token_program.to_account_info(),
                 transfer_instruction,
-                ctx.signer_seeds,
+                &signer_seeds,
             );
 
             anchor_spl::token::transfer(cpi_ctx, 1)?
@@ -232,8 +262,7 @@ pub fn token_transfer<'info>(
     Ok(())
 }
 
-#[derive(Accounts)]
-#[derive(Debug)]
+#[derive(Accounts, Debug)]
 pub struct BoyncTokenTransfer<'info> {
     pub auction_state: AccountInfo<'info>, // Auction state account
 

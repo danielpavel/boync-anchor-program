@@ -2,7 +2,9 @@ mod digital_asset;
 mod metadata;
 mod master_edition_v2;
 mod setup_functions;
+mod constants;
 
+pub use constants::*;
 pub use digital_asset::*;
 pub use setup_functions::*;
 pub use metadata::{assert_collection_size, Metadata};
@@ -23,7 +25,7 @@ pub const DEFAULT_COLLECTION_DETAILS: Option<CollectionDetails> =
 
 pub fn program_test() -> ProgramTest {
     let mut program = ProgramTest::new("boync_anchor_program", boync_anchor_program::id(), None);
-    program.set_compute_max_units(800_000);
+    program.set_compute_max_units(1_200_000);
 
     program.add_program("mpl_token_metadata", mpl_token_metadata::id(), None);
 
