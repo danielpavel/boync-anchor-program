@@ -17,21 +17,15 @@ use std::result::Result as StdResult;
 
 mod standard_transfer {
 
-    use std::println;
+    // use std::println;
 
     use anchor_lang::prelude::Pubkey;
-    use boync_anchor_program::{
-        BoyncAuction2,
-    };
+    use boync_anchor_program::BoyncAuction2;
     use mpl_token_metadata::{instruction::TransferArgs, state::TokenStandard};
-    use solana_program::native_token::LAMPORTS_PER_SOL;
     use solana_program_test::ProgramTestContext;
     use spl_associated_token_account::get_associated_token_address;
 
     use super::*;
-
-    const ONE_MINUTE_IN_MSEC: i64 = 60 * 60 * 1000;
-    const MS_IN_SEC: i64 = 1000;
 
     pub async fn setup_transfer_token(
         context: &mut ProgramTestContext,
@@ -46,7 +40,7 @@ mod standard_transfer {
         let destination_owner = Keypair::new();
         let destination_token =
             get_associated_token_address(&destination_owner.pubkey(), &da.mint.pubkey());
-        airdrop(context, &destination_owner.pubkey(), LAMPORTS_PER_SOL)
+        airdrop(context, &destination_owner.pubkey(), ONE_SOL)
             .await
             .unwrap();
 
@@ -93,7 +87,7 @@ mod standard_transfer {
         let mut context = program_test().start_with_context().await;
 
         let token_standard = TokenStandard::ProgrammableNonFungible;
-        let (da, destination_ata, destination_owner) =
+        let (da, destination_token, destination_owner) =
             setup_transfer_token(&mut context, token_standard, 1)
                 .await
                 .unwrap();
@@ -116,8 +110,6 @@ mod standard_transfer {
             &current_timestamp
         );
 
-        let treasury_ata = get_associated_token_address(&treasury, &da.mint.pubkey());
-
         let (_, tx) = boync_initialize_2(
             &mut context,
             &destination_owner,
@@ -127,8 +119,8 @@ mod standard_transfer {
             &treasury,
             &bidders_chest,
             &current_timestamp,
-            &destination_ata,       // creator ata
-            &treasury_ata,          // destination ata
+            &destination_token,   // creator token
+            None
         );
 
         context.banks_client.process_transaction(tx).await.unwrap();
@@ -136,7 +128,7 @@ mod standard_transfer {
         let treasury_token_account = Account::unpack_from_slice(
             context
                 .banks_client
-                .get_account(treasury_ata)
+                .get_account(treasury)
                 .await
                 .unwrap()
                 .unwrap()
@@ -147,25 +139,13 @@ mod standard_transfer {
 
         assert_eq!(treasury_token_account.amount, 1);
 
-        /*
-         * Check contents of the auction house
-        let auction_house_acc = context
-            .banks_client
-            .get_account(auction)
-            .await
-            .expect("account not found")
-            .expect("account empty");
-        let auction_house_data =
-            BoyncAuction2::try_deserialize(&mut auction_house_acc.data.as_ref()).unwrap();
-        */
-
         let auction_house_data = boync_get_auction_data(&mut context, &auction).await;
 
         assert_eq!(auction_house_data.starting_price, 150_000_000);
         assert_eq!(auction_house_data.start_auction_at, current_timestamp);
         assert_eq!(
             auction_house_data.end_auction_at,
-            current_timestamp + ((30 as i64) * (60 * 60 * 1000 as i64))
+            current_timestamp + (THIRTY_MINUTES_IN_MSEC)
         );
     }
 
@@ -174,7 +154,7 @@ mod standard_transfer {
         let mut context = program_test().start_with_context().await;
 
         let token_standard = TokenStandard::NonFungible;
-        let (da, destination_ata, destination_owner) =
+        let (da, destination_token, destination_owner) =
             setup_transfer_token(&mut context, token_standard, 1)
                 .await
                 .unwrap();
@@ -197,7 +177,7 @@ mod standard_transfer {
             &current_timestamp
         );
 
-        let treasury_ata = get_associated_token_address(&treasury, &da.mint.pubkey());
+        // let treasury_ata = get_associated_token_address(&treasury, &da.mint.pubkey());
 
         let (_, tx) = boync_initialize_2(
             &mut context,
@@ -208,8 +188,8 @@ mod standard_transfer {
             &treasury,
             &bidders_chest,
             &current_timestamp,
-            &destination_ata,       // creator ata
-            &treasury_ata,          // destination ata
+            &destination_token,       // creator token
+            None
         );
 
         context.banks_client.process_transaction(tx).await.unwrap();
@@ -217,7 +197,7 @@ mod standard_transfer {
         let treasury_token_account = Account::unpack_from_slice(
             context
                 .banks_client
-                .get_account(treasury_ata)
+                .get_account(treasury)
                 .await
                 .unwrap()
                 .unwrap()
@@ -247,4 +227,10 @@ mod standard_transfer {
             current_timestamp + ((30 as i64) * (ONE_MINUTE_IN_MSEC))
         );
      }
+
+    // TODO: Write this test
+    // #[tokio::test]
+    // async fn boync_initialize_auction_2_programmable_non_fungible_with_auth() {
+    // }
+
 }

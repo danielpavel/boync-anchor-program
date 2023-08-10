@@ -15,7 +15,9 @@ use solana_program::program_pack::Pack;
 use spl_token::state::Account;
 use std::result::Result as StdResult;
 
-mod update_auction_bid {
+mod update_auction_claim {
+
+    // use std::println;
 
     use anchor_lang::prelude::Pubkey;
     use mpl_token_metadata::{instruction::TransferArgs, state::TokenStandard};
@@ -79,7 +81,7 @@ mod update_auction_bid {
     }
 
     #[tokio::test]
-    async fn boync_user_bid() {
+    async fn boync_user_claim() {
         let mut context = program_test().start_with_context().await;
 
         let token_standard = TokenStandard::ProgrammableNonFungible;
@@ -98,14 +100,18 @@ mod update_auction_bid {
             .get_sysvar::<Clock>()
             .await
             .unwrap()
-            .unix_timestamp * MS_IN_SEC;
+            .unix_timestamp
+            * MS_IN_SEC;
 
         let ((auction, auction_bump), treasury, bidders_chest) = find_boync_auction_pdas(
             &destination_owner.pubkey(),
             &da.mint.pubkey(),
-            &current_timestamp
+            &current_timestamp,
         );
 
+        // let treasury_ata = get_associated_token_address(&treasury, &da.mint.pubkey());
+
+        let auction_duration = 300 * MS_IN_SEC;
         let (_, tx) = boync_initialize_2(
             &mut context,
             &destination_owner,
@@ -116,25 +122,43 @@ mod update_auction_bid {
             &bidders_chest,
             &current_timestamp,
             &destination_token,     // creator token
-            None
+            Some(&auction_duration),
         );
 
         context.banks_client.process_transaction(tx).await.unwrap();
+
+        let treasury_token_account = Account::unpack_from_slice(
+            context
+                .banks_client
+                .get_account(treasury)
+                .await
+                .unwrap()
+                .unwrap()
+                .data
+                .as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(treasury_token_account.amount, 1);
 
         let player1 = Keypair::new();
         airdrop(&mut context, &player1.pubkey(), ONE_SOL)
             .await
             .unwrap();
 
+        let player1_token = get_associated_token_address(&player1.pubkey(), &da.mint.pubkey());
+
         let mut ts = context
             .banks_client
             .get_sysvar::<Clock>()
             .await
             .unwrap()
-            .unix_timestamp * MS_IN_SEC;
+            .unix_timestamp
+            * MS_IN_SEC;
         ts = ts + MS_IN_SEC; // Add a second!
 
-        let (accounts, tx) = boync_update_auction_bid(&mut context, &auction, &bidders_chest, &player1, &ts);
+        let (accounts, tx) =
+            boync_update_auction_bid(&mut context, &auction, &bidders_chest, &player1, &ts);
 
         context.banks_client.process_transaction(tx).await.unwrap();
 
@@ -149,7 +173,11 @@ mod update_auction_bid {
            * Contents of Player 1's `bidder_state` account
         */
 
-        let balance = context.banks_client.get_balance(player1.pubkey()).await.unwrap();
+        let balance = context
+            .banks_client
+            .get_balance(player1.pubkey())
+            .await
+            .unwrap();
         let expected_balance = ONE_SOL - 150_000_000;
         let fees_spent = expected_balance - balance;
 
@@ -159,11 +187,19 @@ mod update_auction_bid {
         let auction_house_data = boync_get_auction_data(&mut context, &auction).await;
         assert_eq!(bidder, auction_house_data.last_bidder);
 
-        let auction_end_time = current_timestamp + THIRTY_MINUTES_IN_MSEC;
-        assert_eq!(auction_end_time + (60 * 1000), auction_house_data.end_auction_at);
+        let auction_end_time = current_timestamp + auction_duration;
+        assert_eq!(
+            auction_end_time + (60 * 1000),
+            auction_house_data.end_auction_at
+        );
         assert_eq!(auction_house_data.next_bid, 157_500_000);
+        assert_eq!(auction_house_data.claimed, 0);
 
-        let bidders_chest_balance = context.banks_client.get_balance(bidders_chest).await.unwrap();
+        let bidders_chest_balance = context
+            .banks_client
+            .get_balance(bidders_chest)
+            .await
+            .unwrap();
         assert_eq!(bidders_chest_balance, 150_000_000);
 
         let bidder_state_data = boync_get_bidder_state_data(&mut context, &bidder_state).await;
@@ -172,5 +208,50 @@ mod update_auction_bid {
         assert_eq!(150_000_000, bidder_state_data.bid_value);
         assert_eq!(ts, bidder_state_data.ts);
 
+        /* Warp blockchain forward */
+        let current_slot = context.banks_client.get_root_slot().await.unwrap();
+
+        context.warp_to_slot(current_slot + 260000).unwrap(); // 260000 slots -> 619 seconds
+
+        let warped_ts = context
+            .banks_client
+            .get_sysvar::<Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp
+            * MS_IN_SEC;
+
+        let auction_house_data = boync_get_auction_data(&mut context, &auction).await;
+        assert!(warped_ts > auction_house_data.end_auction_at);
+
+        /* By this point, the auction is ended, we can safely claim */
+        let (_claim_accounts, tx) = boync_update_auction_claim(
+            &mut context,
+            &da,
+            &auction,
+            &treasury,
+            &player1_token,
+            &player1,
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        let auction_house_data = boync_get_auction_data(&mut context, &auction).await;
+        assert_eq!(auction_house_data.claimed, 1);
+
+        let player1_token_account = Account::unpack_from_slice(
+            context
+                .banks_client
+                .get_account(player1_token)
+                .await
+                .unwrap()
+                .unwrap()
+                .data
+                .as_slice(),
+        )
+        .unwrap();
+
+        /* Winner received token */
+        assert_eq!(player1_token_account.amount, 1);
     }
 }
