@@ -24,6 +24,7 @@ use anchor_spl::token::Transfer;
 
 use crate::constants::*;
 use crate::errors::*;
+use crate::account::BoyncAuction2;
 
 fn build_mpl_token_metadata_instruction_with_builder<'info>(
     ctx: CpiContext<'_, '_, '_, 'info, BoyncTokenTransfer<'info>>,
@@ -318,4 +319,39 @@ pub fn assert_keys_equal(key1: Pubkey, key2: Pubkey) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+pub fn assert_auction_active(listing_config: &Account<BoyncAuction2>) -> Result<()> {
+    let clock = Clock::get()?;
+    let current_timestamp = clock.unix_timestamp * MS_IN_SEC;
+
+    if current_timestamp < listing_config.start_auction_at {
+        return err!(AuctionError::AuctionNotStarted);
+    } else if current_timestamp > listing_config.end_auction_at {
+        return err!(AuctionError::AuctionEnded);
+    }
+
+    Ok(())
+}
+
+pub fn assert_auction_over(listing_config: &Account<BoyncAuction2>) -> Result<()> {
+    let clock = Clock::get()?;
+    let current_timestamp = clock.unix_timestamp * MS_IN_SEC;
+
+    if current_timestamp < listing_config.end_auction_at {
+        return err!(AuctionError::AuctionActive);
+    }
+
+    Ok(())
+}
+
+pub fn process_time_extension(listing_config: &mut Account<BoyncAuction2>) -> Result<()> {
+    let clock = Clock::get()?;
+    let current_timestamp = clock.unix_timestamp * MS_IN_SEC;
+
+    if current_timestamp <= listing_config.end_auction_at {
+        listing_config.end_auction_at += i64::from(60 * MS_IN_SEC);
+    }
+
+    Ok(())
 }
