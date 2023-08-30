@@ -20,7 +20,7 @@ mod standard_transfer {
     // use std::println;
 
     use anchor_lang::prelude::Pubkey;
-    use boync_anchor_program::BoyncAuction2;
+    use boync_anchor_program::account::BoyncAuction2;
     use mpl_token_metadata::{instruction::TransferArgs, state::TokenStandard};
     use solana_program_test::ProgramTestContext;
     use spl_associated_token_account::get_associated_token_address;

@@ -24,7 +24,7 @@ use boync_anchor_program::{
         find_boync_auction_address, find_boync_bidder_state_address,
         find_boync_bidders_chest_address, find_boync_treasury_address,
     },
-    BoyncAuction2, BoyncUserBid,
+    account::{BoyncAuction2, BoyncUserBid},
 };
 use mpl_token_metadata::pda::{find_master_edition_account, find_token_record_account};
 
