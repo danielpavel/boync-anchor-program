@@ -28,7 +28,7 @@ use utils::{
 };
 
 
-declare_id!("DykznMHLnGMNLhDPPPu8BPCSeFb9sWkdiB1731SqPQCN");
+declare_id!("BJbJMqNcTPazBQTbSuPXVz2dZz7u1Vxb5w4TvACxEB3B");
 
 #[program]
 pub mod boync_anchor_program {

@@ -6,13 +6,13 @@ cluster = "localnet"
 wallet = "/Users/danielpavel/.config/solana/devnet-wallet-1.json"
 
 [programs.localnet]
-boync_anchor_program = "DykznMHLnGMNLhDPPPu8BPCSeFb9sWkdiB1731SqPQCN"
+boync_anchor_program = "BJbJMqNcTPazBQTbSuPXVz2dZz7u1Vxb5w4TvACxEB3B"
 
 [programs.devnet]
-boync_anchor_program = "DykznMHLnGMNLhDPPPu8BPCSeFb9sWkdiB1731SqPQCN"
+boync_anchor_program = "BJbJMqNcTPazBQTbSuPXVz2dZz7u1Vxb5w4TvACxEB3B"
 
 [programs.mainnet]
-boync_anchor_program = "DykznMHLnGMNLhDPPPu8BPCSeFb9sWkdiB1731SqPQCN"
+boync_anchor_program = "BJbJMqNcTPazBQTbSuPXVz2dZz7u1Vxb5w4TvACxEB3B"
 
 [registry]
 url = "https://anchor.projectserum.com"
