@@ -8,7 +8,7 @@ pub mod account;
 
 use anchor_lang::{
     prelude::*,
-    solana_program::{ clock::Clock, entrypoint::ProgramResult },
+    solana_program::entrypoint::ProgramResult,
     system_program,
     { AnchorDeserialize, AnchorSerialize },
 };
