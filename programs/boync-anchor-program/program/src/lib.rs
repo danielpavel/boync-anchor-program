@@ -113,7 +113,7 @@ pub mod boync_anchor_program {
         Ok(())
     }
 
-    pub fn initialize_auction_2(
+    pub fn initialize_auction2(
         ctx: Context<InitializeAuction2>,
         app_idx: i64,
         state_bump: u8,
@@ -271,15 +271,6 @@ pub mod boync_anchor_program {
         let auction_state = &mut ctx.accounts.state;
         let bidders_chest = &mut ctx.accounts.bidders_chest;
         let treasury = &mut ctx.accounts.treasury;
-        let clock = Clock::get()?;
-
-        // Can't end an Auction that is already ended.
-        // require!(auction_state.state == AuctionState::Started,
-        //     AuctionError::InvalidState);
-        assert_auction_active(&auction_state)?;
-
-        // auction_state.state = auction_state.state.end()?;
-        auction_state.end_auction_at = clock.unix_timestamp * MS_IN_SEC;
 
         /* Build bidders_chest PDA to sign transaction */
         // let bump = *ctx.bumps.get("wallet").unwrap();
@@ -330,7 +321,7 @@ pub mod boync_anchor_program {
         Ok(())
     }
 
-    pub fn update_auction_2(ctx: Context<UpdateAuction2>, ts: i64) -> Result<()> {
+    pub fn update_auction2(ctx: Context<UpdateAuction2>, ts: i64) -> Result<()> {
         let auction_state = &mut ctx.accounts.state;
         // let clock = Clock::get()?;
 

@@ -265,29 +265,47 @@ pub fn token_transfer<'info>(
 
 #[derive(Accounts, Debug)]
 pub struct BoyncTokenTransfer<'info> {
+    /// CHECK:
     pub auction_state: AccountInfo<'info>, // Auction state account
 
+    /// CHECK:
     pub token: AccountInfo<'info>,             // Token account
+    /// CHECK:
     pub token_owner: AccountInfo<'info>,       // Token account owner
+    /// CHECK:
     pub destination: AccountInfo<'info>,       // Destination token account
+    /// CHECK:
     pub destination_owner: AccountInfo<'info>, // Destination token account owner
 
+    /// CHECK:
     pub mint: AccountInfo<'info>,     // Mint of token asset
+    /// CHECK:
     pub metadata: AccountInfo<'info>, // Metadata (pda of ['metadata', program id, mint id])
+    /// CHECK:
     pub edition: AccountInfo<'info>,  // Edition of token asset
 
+    /// CHECK:
     pub owner_token_record: AccountInfo<'info>, // Owner token record account
+    /// CHECK:
     pub destination_token_record: AccountInfo<'info>, // Destination token record account
 
+    /// CHECK:
     pub authority: AccountInfo<'info>, // Transfer authority (token owner or delegate)
+    /// CHECK:
     pub payer: AccountInfo<'info>,     //  Payer
 
+    /// CHECK:
     pub system_program: AccountInfo<'info>, // System Program
+    /// CHECK:
     pub sysvar_instructions: AccountInfo<'info>, // Instructions sysvar account
+    /// CHECK:
     pub spl_token_program: AccountInfo<'info>, // SPL Token Program
+    /// CHECK:
     pub spl_ata_program: AccountInfo<'info>, // SPL Associated Token Account Program
 
+    /// CHECK:
     pub auth_rules_program: AccountInfo<'info>, // Token Authorization Rules Program
+    /// CHECK:
     pub auth_rules: AccountInfo<'info>,         // Token Authorization Rules account
 }
 

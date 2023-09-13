@@ -141,16 +141,16 @@ pub struct InitializeAuction2<'info> {
     #[account(mut)]
     pub metadata: UncheckedAccount<'info>,
 
-    //// CHECK: Edition Account
+    /// CHECK: Edition Account
     /// verified in `initialize_auction_2`
     pub edition: UncheckedAccount<'info>,
 
-    //// CHECK: Owner Token Record Account
+    /// CHECK: Owner Token Record Account
     /// verified in `initialize_auction_2`
     #[account(mut)]
     pub owner_token_record: UncheckedAccount<'info>,
 
-    //// CHECK: Owner Token Record Account
+    /// CHECK: Owner Token Record Account
     /// verified in `initialize_auction_2`
     #[account(mut)]
     pub destination_token_record: UncheckedAccount<'info>,
@@ -173,11 +173,14 @@ pub struct InitializeAuction2<'info> {
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     #[account(address = mpl_token_auth_rules::id())]
+    /// CHECK: Authorization Rules account
+    /// verified in `mpl_token_transfer`
     pub auth_rules_token_program: UncheckedAccount<'info>,
     #[account(address = mpl_token_metadata::id())]
     pub token_metadata_program: Program<'info, TokenMetadataProgram>,
     rent: Sysvar<'info, Rent>,
     #[account(address = sysvar::instructions::id())]
+    /// CHECK: Sysvar Instructions
     pub sysvar_instructions: UncheckedAccount<'info>,
 }
 
@@ -224,16 +227,16 @@ pub struct ClaimRewards<'info> {
     #[account(mut)]
     pub metadata: UncheckedAccount<'info>,
 
-    //// CHECK: Edition Account
+    /// CHECK: Edition Account
     /// verified part of the mpl_metadata_token::transfer
     pub edition: UncheckedAccount<'info>,
 
-    //// CHECK: Owner Token Record Account
+    /// CHECK: Owner Token Record Account
     /// verified part of the mpl_metadata_token::transfer
     #[account(mut)]
     pub owner_token_record: UncheckedAccount<'info>,
 
-    //// CHECK: Owner Token Record Account
+    /// CHECK: Owner Token Record Account
     /// verified part of the mpl_metadata_token::transfer
     #[account(mut)]
     pub destination_token_record: UncheckedAccount<'info>,
@@ -247,12 +250,15 @@ pub struct ClaimRewards<'info> {
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     #[account(address = mpl_token_auth_rules::id())]
+    /// CHECK: Authorization Rules account
+    /// verified in `mpl_token_transfer`
     pub auth_rules_token_program: UncheckedAccount<'info>,
     #[account(address = mpl_token_metadata::id())]
     pub token_metadata_program: Program<'info, TokenMetadataProgram>,
     pub rent: Sysvar<'info, Rent>,
 
     #[account(address = sysvar::instructions::id())]
+    /// CHECK: Sysvar Instructions
     pub sysvar_instructions: UncheckedAccount<'info>,
 }
 
