@@ -149,6 +149,87 @@ mod standard_transfer {
         );
     }
 
+    #[tokio::test]
+    async fn boync_initialize_auction_3_programmable_non_fungible() {
+
+        let mut context = program_test().start_with_context().await;
+
+        let token_standard = TokenStandard::ProgrammableNonFungible;
+        let (da, destination_token, destination_owner) =
+            setup_transfer_token(&mut context, token_standard, 1)
+                .await
+                .unwrap();
+
+        let payer_wallet = Keypair::new();
+        airdrop(&mut context, &payer_wallet.pubkey(), 10_000_000_000)
+            .await
+            .unwrap();
+
+        // Creating NLT token mint
+        let nlt_mint_key = Keypair::new();
+        create_mint(&mut context, &nlt_mint_key, &payer_wallet.pubkey(), None, 0)
+            .await
+            .unwrap();
+
+        /*
+         * At this point we have the digital asset in the hands of (destination_owner / destination_token)
+         * which will act as the auction seller/creator
+         */
+
+        let current_timestamp = context
+            .banks_client
+            .get_sysvar::<Clock>()
+            .await
+            .unwrap()
+            .unix_timestamp * MS_IN_SEC;
+
+        let ((auction, auction_bump), treasury, bidders_chest) = find_boync_auction_pdas_with_token_mint(
+            &destination_owner.pubkey(),
+            &da.mint.pubkey(),
+            &nlt_mint_key.pubkey(),
+            &current_timestamp
+        );
+
+        let (_, tx) = boync_initialize_3(
+            &mut context,
+            &destination_owner,
+            &da,
+            &nlt_mint_key.pubkey(),
+            &auction,
+            auction_bump,
+            &treasury,
+            &bidders_chest,
+            &current_timestamp,
+            &destination_token,   // creator token
+            None
+        );
+
+        context.banks_client.process_transaction(tx).await.unwrap();
+
+        let treasury_token_account = Account::unpack_from_slice(
+            context
+                .banks_client
+                .get_account(treasury)
+                .await
+                .unwrap()
+                .unwrap()
+                .data
+                .as_slice(),
+        )
+        .unwrap();
+
+        assert_eq!(treasury_token_account.amount, 1);
+
+        let auction_house_data = boync_get_auction_data_v3(&mut context, &auction).await;
+
+        assert_eq!(auction_house_data.current_bid, 0);
+        assert_eq!(auction_house_data.start_auction_at, current_timestamp);
+        assert_eq!(
+            auction_house_data.end_auction_at,
+            current_timestamp + (THIRTY_MINUTES_IN_MSEC)
+        );
+    }
+
      #[tokio::test]
      async fn boync_initialize_auction_2_non_fungible() {
         let mut context = program_test().start_with_context().await;

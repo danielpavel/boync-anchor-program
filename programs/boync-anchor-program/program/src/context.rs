@@ -11,7 +11,7 @@ use anchor_spl::{
 use crate::constants::*;
 use crate::utils::TokenMetadataProgram;
 use crate::errors::AuctionError;
-use crate::account::{BoyncAuction2, BoyncAuction, BoyncUserBid};
+use crate::account::{BoyncAuction2, BoyncAuction, BoyncAuction3, BoyncUserBid};
 
 #[derive(Accounts)]
 #[instruction(app_idx: i64, state_bump: u8)]
@@ -51,7 +51,7 @@ pub struct InitializeAuction<'info> {
         init,
         payer = signer,
         seeds = [
-            WALLET_SEED,
+            CHEST_SEED,
             signer.key().as_ref(),
             collector_mint.key().as_ref(),
             app_idx.to_le_bytes().as_ref(),
@@ -122,7 +122,7 @@ pub struct InitializeAuction2<'info> {
 
     #[account(
         mut,
-        seeds = [WALLET_SEED, signer.key().as_ref(), app_idx.to_le_bytes().as_ref()],
+        seeds = [CHEST_SEED, signer.key().as_ref(), app_idx.to_le_bytes().as_ref()],
         bump
     )]
     /// Account which holds tokens bidded by biders
@@ -135,6 +135,113 @@ pub struct InitializeAuction2<'info> {
 
     /// Mint for SPL Token stored in treasu2ry.
     pub treasury_mint: Box<Account<'info, Mint>>,
+
+    /// CHECK: Metadata Account
+    /// verified in `initialize_auction_2`
+    #[account(mut)]
+    pub metadata: UncheckedAccount<'info>,
+
+    /// CHECK: Edition Account
+    /// verified in `initialize_auction_2`
+    pub edition: UncheckedAccount<'info>,
+
+    /// CHECK: Owner Token Record Account
+    /// verified in `initialize_auction_2`
+    #[account(mut)]
+    pub owner_token_record: UncheckedAccount<'info>,
+
+    /// CHECK: Owner Token Record Account
+    /// verified in `initialize_auction_2`
+    #[account(mut)]
+    pub destination_token_record: UncheckedAccount<'info>,
+
+    /// CHECK: PDA checked by anchor
+    pub auth_rules: UncheckedAccount<'info>,
+
+    /// SPL Token account for Signer wallet
+    /// (The wallet who will send the Token being auctioned)
+    #[account(
+        init_if_needed,
+        associated_token::mint = treasury_mint,
+        associated_token::authority = signer,
+        payer = signer
+    )]
+    pub signer_token_account: Box<Account<'info, TokenAccount>>,
+
+    // Application level accounts
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    #[account(address = mpl_token_auth_rules::id())]
+    /// CHECK: Authorization Rules account
+    /// verified in `mpl_token_transfer`
+    pub auth_rules_token_program: UncheckedAccount<'info>,
+    #[account(address = mpl_token_metadata::id())]
+    pub token_metadata_program: Program<'info, TokenMetadataProgram>,
+    rent: Sysvar<'info, Rent>,
+    #[account(address = sysvar::instructions::id())]
+    /// CHECK: Sysvar Instructions
+    pub sysvar_instructions: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(app_idx: i64, state_bump: u8, start_at: i64, end_at: i64)]
+pub struct InitializeAuction3<'info> {
+    /// State of our auction program (up to you)
+    #[account(
+        init,
+        payer = signer,
+        space = 8 + BoyncAuction3::AUCTION_SIZE,
+        seeds = [
+            AUCTION_SEED,
+            signer.key().as_ref(),
+            treasury_mint.key().as_ref(),
+            app_idx.to_le_bytes().as_ref(),
+        ],
+        bump
+    )]
+    pub state: Box<Account<'info, BoyncAuction3>>,
+
+    #[account(
+        init,
+        payer = signer,
+        seeds = [
+            TREASURY_SEED,
+            signer.key().as_ref(),
+            treasury_mint.key().as_ref(),
+            app_idx.to_le_bytes().as_ref(),
+        ],
+        bump,
+        token::mint = treasury_mint,
+        token::authority = state
+    )]
+    /// Token Account holding token being auctioned.
+    pub treasury: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        init,
+        payer = signer,
+        seeds = [
+            CHEST_SEED,
+            signer.key().as_ref(),
+            chest_mint.key().as_ref(),
+            app_idx.to_le_bytes().as_ref(),
+        ],
+        bump,
+        token::mint = chest_mint,
+        token::authority = state
+    )]
+    /// Account which holds tokens bidded by biders
+    pub chest: Account<'info, TokenAccount>,
+
+    // Users and accounts in the system
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
+    /// Mint for SPL Token stored in treasury.
+    pub treasury_mint: Box<Account<'info, Mint>>,
+    /// Mint for SPL Token stored in bidder's chest.
+    pub chest_mint: Box<Account<'info, Mint>>,
 
     /// CHECK: Metadata Account
     /// verified in `initialize_auction_2`
@@ -262,6 +369,84 @@ pub struct ClaimRewards<'info> {
     pub sysvar_instructions: UncheckedAccount<'info>,
 }
 
+#[derive(Accounts)]
+pub struct ClaimRewards3<'info> {
+    #[account(
+        mut,
+        seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub state: Box<Account<'info, BoyncAuction3>>,
+
+    /// Token Account holding token being auctioned.
+    #[account(
+        mut,
+        seeds = [TREASURY_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.id.to_le_bytes().as_ref()],
+        bump,
+        token::mint=treasury_mint,
+        token::authority=state
+    )]
+    pub treasury: Box<Account<'info, TokenAccount>>,
+
+    /// Mint for SPL Token stored in treasury.
+    pub treasury_mint: Account<'info, Mint>,
+
+    // Users and accounts in the system
+    #[account(mut)]
+    pub winner: Signer<'info>,
+
+    /// Winner's SPL Token account wallet
+    /// (The wallet who will receive the auctioned token(s))
+    #[account(
+        init_if_needed,
+        payer = winner,
+        associated_token::mint = treasury_mint,
+        associated_token::authority = winner,
+        constraint = winner_token_account.owner == winner.key(),
+        constraint = winner_token_account.mint == treasury_mint.key()
+    )]
+    pub winner_token_account: Account<'info, TokenAccount>,
+
+    /// CHECK: Metadata Account
+    /// verified part of the mpl_metadata_token::transfer
+    #[account(mut)]
+    pub metadata: UncheckedAccount<'info>,
+
+    /// CHECK: Edition Account
+    /// verified part of the mpl_metadata_token::transfer
+    pub edition: UncheckedAccount<'info>,
+
+    /// CHECK: Owner Token Record Account
+    /// verified part of the mpl_metadata_token::transfer
+    #[account(mut)]
+    pub owner_token_record: UncheckedAccount<'info>,
+
+    /// CHECK: Owner Token Record Account
+    /// verified part of the mpl_metadata_token::transfer
+    #[account(mut)]
+    pub destination_token_record: UncheckedAccount<'info>,
+
+    /// CHECK: Authorization Rules account
+    /// verified part of the mpl_metadata_token::transfer
+    pub auth_rules: UncheckedAccount<'info>,
+
+    // Application level accounts
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    #[account(address = mpl_token_auth_rules::id())]
+    /// CHECK: Authorization Rules account
+    /// verified in `mpl_token_transfer`
+    pub auth_rules_token_program: UncheckedAccount<'info>,
+    #[account(address = mpl_token_metadata::id())]
+    pub token_metadata_program: Program<'info, TokenMetadataProgram>,
+    pub rent: Sysvar<'info, Rent>,
+
+    #[account(address = sysvar::instructions::id())]
+    /// CHECK: Sysvar Instructions
+    pub sysvar_instructions: UncheckedAccount<'info>,
+}
+
 /*
  * [DEPRECATED]
  *
@@ -312,7 +497,7 @@ pub struct EndAuction<'info> {
     /// CHECK: only used as a signing PDA
     #[account(
         mut,
-        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.id.to_le_bytes().as_ref()],
+        seeds = [CHEST_SEED, state.authority.key().as_ref(), state.id.to_le_bytes().as_ref()],
         bump
     )]
     pub bidders_chest: AccountInfo<'info>,
@@ -347,7 +532,7 @@ pub struct UpdateAuction2<'info> {
     /// CHECK: only used as a signing PDA
     #[account(
         mut,
-        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.id.to_le_bytes().as_ref()],
+        seeds = [CHEST_SEED, state.authority.key().as_ref(), state.id.to_le_bytes().as_ref()],
         bump
     )]
     pub bidders_chest: AccountInfo<'info>,
@@ -375,6 +560,72 @@ pub struct UpdateAuction2<'info> {
     rent: Sysvar<'info, Rent>,
 }
 
+/**
+ * V3
+ * Users use Tokens to bid.
+ * [BA-Program-5uJBi4jN][MVP] Remove BOYNC token GATE
+ */
+#[derive(Accounts)]
+#[instruction(ts: i64)]
+pub struct UpdateAuction3<'info> {
+    #[account(
+        mut,
+        seeds = [AUCTION_SEED, state.authority.key().as_ref(), state.treasury_mint.key().as_ref(), state.id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub state: Account<'info, BoyncAuction3>,
+
+    #[account(
+        init_if_needed,
+        payer = bidder,
+        seeds = [
+            CHEST_SEED,
+            state.authority.key().as_ref(),
+            chest_mint.key().as_ref(),
+            state.id.to_le_bytes().as_ref(),
+        ],
+        bump,
+        token::mint = chest_mint,
+        token::authority = state
+    )]
+    /// Account which holds tokens bidded by biders
+    pub chest: Account<'info, TokenAccount>,
+
+    /// Mint for SPL Token stored in bidder's chest.
+    pub chest_mint: Account<'info, Mint>,
+
+    #[account(
+        init_if_needed,
+        payer = bidder,
+        space = 8 + BoyncUserBid::ACCOUNT_SIZE,
+        seeds = [
+            BIDDER_SEED,
+            state.key().as_ref(),
+            bidder.key().as_ref(),
+            ts.to_le_bytes().as_ref(),
+        ],
+        bump
+    )]
+    pub bidder_state: Account<'info, BoyncUserBid>,
+
+    /// Payer's SPL Token account wallet
+    #[account(
+        mut,
+        constraint=bidder_token_account.owner == bidder.key(),
+        constraint=bidder_token_account.mint == chest_mint.key(),
+    )]
+    pub bidder_token_account: Account<'info, TokenAccount>,
+
+    // Users and accounts in the system
+    #[account(mut)]
+    pub bidder: Signer<'info>,
+
+    // Application level accounts
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    rent: Sysvar<'info, Rent>,
+}
+
 /*
  * [DEPRECATED]
  *
@@ -390,7 +641,7 @@ pub struct UpdateAuction<'info> {
 
     #[account(
         mut,
-        seeds = [WALLET_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref(), state.id.to_le_bytes().as_ref()],
+        seeds = [CHEST_SEED, state.authority.key().as_ref(), state.collector_mint.key().as_ref(), state.id.to_le_bytes().as_ref()],
         bump
     )]
     /// Account which holds tokens bidded by biders

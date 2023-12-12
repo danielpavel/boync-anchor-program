@@ -2,7 +2,8 @@
 seeds = false
 
 [provider]
-cluster = "localnet"
+#cluster = "localnet"
+cluster = "devnet"
 wallet = "/Users/danielpavel/.config/solana/devnet-wallet-1.json"
 
 [programs.localnet]

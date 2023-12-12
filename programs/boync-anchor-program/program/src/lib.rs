@@ -8,7 +8,7 @@ pub mod account;
 
 use anchor_lang::{
     prelude::*,
-    solana_program::entrypoint::ProgramResult,
+    solana_program::{entrypoint::ProgramResult, native_token::LAMPORTS_PER_SOL},
     system_program,
     { AnchorDeserialize, AnchorSerialize },
 };
@@ -23,8 +23,11 @@ use utils::{
     BoyncTokenTransfer,
     token_transfer,
     assert_auction_active,
+    assert_auction_active_v3,
     assert_auction_over,
+    assert_auction_over_v3,
     process_time_extension,
+    process_time_extension_v3,
 };
 
 
@@ -181,6 +184,72 @@ pub mod boync_anchor_program {
         Ok(())
     }
 
+    pub fn initialize_auction3(
+        ctx: Context<InitializeAuction3>,
+        app_idx: i64,
+        state_bump: u8,
+        start_at: i64,
+        end_at: i64
+    ) -> ProgramResult {
+        msg!("[BoyncDebug][v3] Initializing new Boync Auction State");
+
+        // let clock = Clock::get()?;
+        let auction_state = &mut ctx.accounts.state;
+
+        auction_state.id = app_idx; // App index is UnixTimestamp
+        auction_state.start_auction_at = start_at;
+        auction_state.end_auction_at = end_at;
+        auction_state.current_bid = 0;
+        auction_state.authority = ctx.accounts.signer.key().clone();
+        auction_state.treasury_mint = ctx.accounts.treasury_mint.key().clone();
+        auction_state.treasury = ctx.accounts.treasury.key().clone();
+        auction_state.chest = ctx.accounts.chest.key().clone();
+        auction_state.bump = state_bump;
+
+        msg!("[BoyncDebug][v3] Initialized with treasury: {}", auction_state.treasury.key());
+
+        let auction_state_clone = auction_state.to_account_info();
+
+        let transfer_accounts = BoyncTokenTransfer {
+            auction_state: auction_state_clone.to_account_info(),
+            token: ctx.accounts.signer_token_account.to_account_info(),
+            token_owner: ctx.accounts.signer.to_account_info(),
+            destination: ctx.accounts.treasury.to_account_info(),
+            destination_owner: auction_state_clone,
+            mint: ctx.accounts.treasury_mint.to_account_info(),
+            metadata: ctx.accounts.metadata.to_account_info(),
+            edition: ctx.accounts.edition.to_account_info(),
+            owner_token_record: ctx.accounts.owner_token_record.to_account_info(),
+            destination_token_record: ctx.accounts.destination_token_record.to_account_info(),
+            authority: ctx.accounts.signer.to_account_info(),
+            payer: ctx.accounts.signer.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+            sysvar_instructions: ctx.accounts.sysvar_instructions.to_account_info(),
+            spl_token_program: ctx.accounts.token_program.to_account_info(),
+            spl_ata_program: ctx.accounts.associated_token_program.to_account_info(),
+            auth_rules_program: ctx.accounts.auth_rules_token_program.to_account_info(),
+            auth_rules: ctx.accounts.auth_rules.to_account_info(),
+        };
+
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.token_metadata_program.to_account_info(),
+            transfer_accounts
+        );
+
+        token_transfer(cpi_ctx, &auction_state.id, 1)?;
+
+        msg!("[BoyncDebug][v3] Token transfered to treasury: {}", auction_state.treasury.key());
+
+        emit!(BoyncInitializeEvent {
+            auction_pubkey: auction_state.key(),
+            label: "initialize".to_string(),
+        });
+
+        msg!("[BoyncDebug] Initialize event sent");
+
+        Ok(())
+    }
+
     /* Disabled as part of [BA-Program-5uJBi4jN][MVP] Remove BOYNC token GATE
     pub fn initialize(ctx: Context<InitializeAuction>, app_idx: i64, state_bump: u8) -> Result<()> {
         msg!("[BoyncProgram] Initializing new Boync Auction State");
@@ -277,7 +346,7 @@ pub mod boync_anchor_program {
         let auction_auth = auction_state.authority.clone();
         let app_idx_bytes = auction_state.id.to_le_bytes();
         let seeds = &[
-            WALLET_SEED,
+            CHEST_SEED,
             auction_auth.as_ref(),
             app_idx_bytes.as_ref(),
             &[bidder_chest_bump],
@@ -401,6 +470,82 @@ pub mod boync_anchor_program {
         Ok(())
     }
 
+    pub fn update_auction3(ctx: Context<UpdateAuction3>, ts: i64) -> Result<()> {
+        let auction_state = &mut ctx.accounts.state;
+        // let clock = Clock::get()?;
+
+        // Can't bid on an Auction that is ended.
+        assert_auction_active_v3(&auction_state)?;
+
+        // Can't bid on an Auction that was already claimed.
+        require!(auction_state.claimed == 0, AuctionError::AuctionClaimed);
+
+        // Can't bid on an Auction you're the authority of.
+        require!(
+            auction_state.authority.key() != ctx.accounts.bidder.key(),
+            AuctionError::AuctionAuthorityBid
+        );
+
+        // Can't bid on an Auction if you're already Last Bidder
+        require!(
+            auction_state.last_bidder.key() != ctx.accounts.bidder.key(),
+            AuctionError::AuctionAlreadyLastBidder
+        );
+
+        // Just transfer SPL Token to bidders_chest
+        // let _bump = *ctx.bumps.get("auction").unwrap();
+        // let bump = auction_state.bump;
+        let auction_auth = auction_state.authority.clone();
+        let treasury_mint = auction_state.treasury_mint.key().clone();
+        let app_idx_bytes = auction_state.id.to_le_bytes();
+        let seeds = &[
+            AUCTION_SEED,
+            auction_auth.as_ref(),
+            treasury_mint.as_ref(),
+            app_idx_bytes.as_ref(),
+            &[auction_state.bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        // Token program instruction to send SPL token.
+        let transfer_instruction = Transfer {
+            from:       ctx.accounts.bidder_token_account.to_account_info(),
+            to:         ctx.accounts.chest.to_account_info(),
+            authority:  ctx.accounts.bidder.to_account_info(),
+        };
+
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            transfer_instruction,
+            signer_seeds
+        );
+
+        anchor_spl::token::transfer(cpi_ctx, 1)?;
+
+        /* Increase current_bid by one hundreth of a SOL */
+        auction_state.current_bid += LAMPORTS_PER_SOL / 100;
+        auction_state.last_bidder = ctx.accounts.bidder.key.clone();
+        process_time_extension_v3(auction_state)?;
+
+        /* Store bid state */
+        let bidder_state = &mut ctx.accounts.bidder_state;
+        bidder_state.auction = auction_state.key();
+        bidder_state.bidder = ctx.accounts.bidder.key.clone();
+        bidder_state.bid_value = auction_state.current_bid;
+        bidder_state.ts = ts;
+
+        emit!(BoyncBidEvent {
+            auction_pubkey: auction_state.key(),
+            bidder_pubkey: auction_state.last_bidder.clone(),
+            updated_bid_value: auction_state.current_bid.clone(),
+            updated_end_timestamp: auction_state.end_auction_at,
+            label: "bid".to_string(),
+            ts: ts,
+        });
+
+        Ok(())
+    }
+
     /// Bid
     /* 
     pub fn bid(ctx: Context<UpdateAuction>, amount: u64) -> Result<()> {
@@ -464,14 +609,6 @@ pub mod boync_anchor_program {
         // Can't claim on an Auction that was already claimed.
         require!(auction_state.claimed == 0, AuctionError::AuctionClaimed);
 
-        // Can't claim an Auction that is not in ended state.
-        // require!(auction_state.state == AuctionState::Ended,
-        //     AuctionError::InvalidState);
-
-        // Only Winner can claim rewards.
-        // FIX: *MAYBE REDUNDAND because of
-        // #[account(constraint=state.last_bidder == winner.key())
-
         // If last_bidder is system program Id => no bids has been placed => claimable only by authority
         if auction_state.last_bidder.key() == system_program::ID.key() {
             require!(
@@ -499,6 +636,106 @@ pub mod boync_anchor_program {
 
         let auction_state_clone = auction_state.to_account_info();
 
+        let transfer_accounts = BoyncTokenTransfer {
+            auction_state: auction_state_clone.to_account_info(),
+            token: ctx.accounts.treasury.to_account_info(),
+            token_owner: auction_state_clone.to_account_info(),
+            destination: ctx.accounts.winner_token_account.to_account_info(),
+            destination_owner: ctx.accounts.winner.to_account_info(),
+            mint: ctx.accounts.treasury_mint.to_account_info(),
+            metadata: ctx.accounts.metadata.to_account_info(),
+            edition: ctx.accounts.edition.to_account_info(),
+            owner_token_record: ctx.accounts.owner_token_record.to_account_info(),
+            destination_token_record: ctx.accounts.destination_token_record.to_account_info(),
+            authority: auction_state_clone.to_account_info(),
+            payer: ctx.accounts.winner.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+            sysvar_instructions: ctx.accounts.sysvar_instructions.to_account_info(),
+            spl_token_program: ctx.accounts.token_program.to_account_info(),
+            spl_ata_program: ctx.accounts.associated_token_program.to_account_info(),
+            auth_rules_program: ctx.accounts.auth_rules_token_program.to_account_info(),
+            auth_rules: ctx.accounts.auth_rules.to_account_info(),
+        };
+
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_metadata_program.to_account_info(),
+            transfer_accounts,
+            signer_seeds
+        );
+
+        token_transfer(cpi_ctx, &auction_state.id, 1)?;
+
+        msg!("[BoyncDebug][claim_rewards] treasury transfered token.");
+
+        // Use the `reload()` function on an account to reload it's state. Since we performed the
+        // transfer, we are expecting the `amount` field to have changed.
+        // TODO: *PROPERLY CLOSE TREASURY ACCOUNT*
+
+        auction_state.claimed = 1;
+
+        emit!(BoyncClaimEvent {
+            auction_pubkey: auction_state.key(),
+            claimed: auction_state.claimed,
+            label: "claim".to_string(),
+        });
+
+        msg!("[BoyncDebug][claim_rewards] BoyncClaimEvent sent.");
+
+        Ok(())
+    }
+
+    pub fn claim_rewards3(ctx: Context<ClaimRewards3>) -> Result<()> {
+        let auction_state = &mut ctx.accounts.state;
+        // let clock = Clock::get()?;
+
+        // Can't withdraw on an Auction that is not ended.
+        assert_auction_over_v3(&auction_state)?;
+
+        // Can't claim on an Auction that was already claimed.
+        require!(auction_state.claimed == 0, AuctionError::AuctionClaimed);
+
+        // If last_bidder is system program Id => no bids has been placed => claimable only by authority
+        if auction_state.last_bidder.key() == system_program::ID.key() {
+            require!(
+                auction_state.authority.key() == ctx.accounts.winner.key(),
+                AuctionError::YouAreNotTheAuthority
+            );
+        } else {
+            require!(
+                auction_state.last_bidder.key() == ctx.accounts.winner.key(),
+                AuctionError::YouAreNotTheWinner
+            );
+        }
+
+        let treasury_mint = ctx.accounts.treasury_mint.key().clone();
+        let auction_auth = auction_state.authority.clone();
+        let app_idx_bytes = auction_state.id.to_le_bytes();
+        let seeds = &[
+            AUCTION_SEED,
+            auction_auth.as_ref(),
+            treasury_mint.as_ref(),
+            app_idx_bytes.as_ref(),
+            &[auction_state.bump],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        /* We first ask user to transfer the final auction price, aka `current_bid` */
+        let auction_state_clone = auction_state.to_account_info();
+        let transfer_instruction = anchor_lang::system_program::Transfer {
+            from: ctx.accounts.winner.to_account_info(),
+            to: auction_state_clone,
+        };
+
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            transfer_instruction,
+            signer_seeds
+        );
+
+        anchor_lang::system_program::transfer(cpi_ctx, auction_state.current_bid.clone())?;
+
+        /* Finally we transfer the NFT to the winner */
+        let auction_state_clone = auction_state.to_account_info();
         let transfer_accounts = BoyncTokenTransfer {
             auction_state: auction_state_clone.to_account_info(),
             token: ctx.accounts.treasury.to_account_info(),

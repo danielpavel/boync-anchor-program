@@ -63,7 +63,40 @@ pub struct BoyncAuction2 {
  */
 impl BoyncAuction2 {
     // pub const AUCTION_SIZE: usize = ( 1 + 32 ) + ( 1 + 32 ) + ( 1 + 64 );
-    pub const AUCTION_SIZE: usize = size_of::<BoyncAuction>();
+    pub const AUCTION_SIZE: usize = size_of::<BoyncAuction2>();
+
+    pub fn ended(&self, now: i64) -> Result<bool> {
+        Ok(now * MS_IN_SEC > self.end_auction_at)
+    }
+}
+
+/**
+ * V3
+ * Users use tokens to bid.
+ */
+#[account]
+pub struct BoyncAuction3 {
+    pub id: i64,
+    pub start_auction_at: i64, // 1 + 64
+    pub end_auction_at: i64, // 1 + 64
+    pub authority: Pubkey,
+    pub treasury_mint: Pubkey,
+    pub treasury: Pubkey,
+    pub chest: Pubkey,
+    pub current_bid: u64,
+    pub claimed: u8,
+    pub state: AuctionState, // 1 + 32
+    pub last_bidder: Pubkey,
+    pub bump: u8,
+}
+
+/**
+ * V3
+ * Users use SOL to bid.
+ * [BA-Program-5uJBi4jN][MVP] Remove BOYNC token GATE
+ */
+impl BoyncAuction3 {
+    pub const AUCTION_SIZE: usize = size_of::<BoyncAuction3>();
 
     pub fn ended(&self, now: i64) -> Result<bool> {
         Ok(now * MS_IN_SEC > self.end_auction_at)
